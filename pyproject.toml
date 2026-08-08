@@ -38,6 +38,23 @@ dependencies = [
   # rebuild drift to 3.2.0 and break paid traffic. See futures_service._futures_query.
   "tradingview-screener==3.0.0",
   "tradingview-ta>=3.3.0",
+
+  # ── Trading-system extension (Block 1+) ──────────────────────────────
+  # Isolated to their own dependency group in intent (all optional at
+  # import-time — nothing above this line imports them), but declared as
+  # regular dependencies because the Docker image is shared across the
+  # `tradingview-mcp`, `bybit-collector`, `analysis-worker`, and
+  # `paper-broker` services (single image, different CMD per plan).
+  "pybit>=5.7,<6",
+  "websockets>=12,<14",
+  "sortedcontainers>=2.4,<3",
+  "sqlalchemy[asyncio]>=2.0,<3",
+  "asyncpg>=0.29,<1",
+  "alembic>=1.13,<2",
+  "pydantic-settings>=2.4,<3",
+  "redis>=5.0,<6",
+  "prometheus-client>=0.20,<1",
+  "pyyaml>=6.0,<7",
 ]
 
 [project.scripts]

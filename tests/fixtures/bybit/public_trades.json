@@ -1,0 +1,11 @@
+{
+  "topic": "publicTrade.BTCUSDT",
+  "type": "snapshot",
+  "ts": 1700000000000,
+  "data": [
+    {"T": 1700000000100, "s": "BTCUSDT", "S": "Buy", "v": "0.010", "p": "68000.5", "L": "ZeroPlusTick", "i": "t-1", "BT": false},
+    {"T": 1700000000200, "s": "BTCUSDT", "S": "Sell", "v": "0.020", "p": "68000.0", "L": "ZeroMinusTick", "i": "t-2", "BT": false},
+    {"T": 1700000000300, "s": "BTCUSDT", "S": "Buy", "v": "1.500", "p": "68001.0", "L": "PlusTick", "i": "t-3", "BT": false},
+    {"T": 1700000000400, "s": "BTCUSDT", "S": "Buy", "v": "0.010", "p": "68000.5", "L": "ZeroPlusTick", "i": "t-1", "BT": false}
+  ]
+}

@@ -89,6 +89,15 @@ from tradingview_mcp.core.errors import (
     exception_to_envelope,
     make_error,
 )
+from tradingview_mcp.core.services.trading_query_service import (
+    bybit_market_state as _bybit_market_state,
+    get_trade_setup as _get_trade_setup,
+    paper_portfolio_status as _paper_portfolio_status,
+    rank_futures_opportunities as _rank_futures_opportunities,
+    run_futures_opportunity_scan as _run_futures_opportunity_scan,
+    strategy_performance as _strategy_performance,
+    trading_system_health as _trading_system_health,
+)
 
 try:
     import tradingview_screener  # noqa: F401
@@ -1052,6 +1061,157 @@ def exchanges_list() -> str:
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────
+
+# ── Trading system extension (Block 3) ──────────────────────────────────────
+#
+# Bybit/paper-trading MCP tools. Every handler below only validates
+# parameters and delegates to `core.services.trading_query_service` — no
+# business logic lives here, matching every other tool in this file. These
+# tools read data the `bybit-collector` / `analysis-worker` Docker Compose
+# services (Block 1/2) have already computed and persisted; none of them
+# run live analysis inline, call this server's own MCP endpoint over HTTP,
+# or place any order (paper or real).
+
+@mcp.tool(annotations=ToolAnnotations(title="Bybit Market State", readOnlyHint=True, destructiveHint=False, openWorldHint=False))
+async def bybit_market_state(symbol: str) -> dict:
+    """Real-time Bybit linear-futures market state for one symbol: price,
+    spread, open interest, funding, basis, CVD/delta, order-book imbalance,
+    recent liquidations, market regime, and data freshness/quality.
+
+    Args:
+        symbol: Bybit symbol, e.g. BTCUSDT.
+    """
+    if not symbol or not symbol.strip():
+        return make_error(ErrorCode.INVALID_PARAMETER, "symbol is required")
+    try:
+        return await _bybit_market_state(symbol.strip())
+    except Exception as e:
+        return exception_to_envelope(e, context="bybit_market_state")
+
+
+@mcp.tool(annotations=ToolAnnotations(title="Rank Futures Opportunities", readOnlyHint=True, destructiveHint=False, openWorldHint=False))
+async def rank_futures_opportunities(
+    symbols: str,
+    minimum_score: int = 75,
+    maximum_results: int = 10,
+    include_rejected: bool = False,
+) -> dict:
+    """Ranks recently-computed candidate trade setups (highest score
+    first) or returns NO_TRADE. Never runs analysis inline — reads what
+    the Strategy Engine already persisted.
+
+    Args:
+        symbols: comma-separated Bybit symbols, e.g. "BTCUSDT,ETHUSDT".
+        minimum_score: 0-100 minimum score to qualify (default 75).
+        maximum_results: maximum opportunities to return (default 10).
+        include_rejected: also include a summary of recently rejected setups.
+    """
+    parsed = [s.strip().upper() for s in (symbols or "").split(",") if s.strip()]
+    if not parsed:
+        return make_error(ErrorCode.INVALID_PARAMETER, "symbols must be a non-empty comma-separated list")
+    if not (0 <= minimum_score <= 100):
+        return make_error(ErrorCode.INVALID_PARAMETER, "minimum_score must be between 0 and 100")
+    if maximum_results < 1:
+        return make_error(ErrorCode.INVALID_PARAMETER, "maximum_results must be >= 1")
+    try:
+        return await _rank_futures_opportunities(
+            parsed, minimum_score=minimum_score, maximum_results=maximum_results, include_rejected=include_rejected
+        )
+    except Exception as e:
+        return exception_to_envelope(e, context="rank_futures_opportunities")
+
+
+@mcp.tool(annotations=ToolAnnotations(title="Get Trade Setup", readOnlyHint=True, destructiveHint=False, openWorldHint=False))
+async def get_trade_setup(signal_id: str) -> dict:
+    """Full detail for one strategy signal: entry/stop/targets, score
+    components, risk context, invalidation condition, and expiry.
+
+    Args:
+        signal_id: UUID of a `strategy_signals` row (as returned by
+            rank_futures_opportunities or run_futures_opportunity_scan).
+    """
+    if not signal_id or not signal_id.strip():
+        return make_error(ErrorCode.INVALID_PARAMETER, "signal_id is required")
+    try:
+        return await _get_trade_setup(signal_id.strip())
+    except Exception as e:
+        return exception_to_envelope(e, context="get_trade_setup")
+
+
+@mcp.tool(annotations=ToolAnnotations(title="Paper Portfolio Status", readOnlyHint=True, destructiveHint=False, openWorldHint=False))
+async def paper_portfolio_status() -> dict:
+    """Current paper-trading portfolio: balance, equity, open positions,
+    today's PnL, the daily loss limit, and remaining risk budget. Read-only
+    — paper trading only, no real funds or orders exist anywhere in this
+    project."""
+    try:
+        return await _paper_portfolio_status()
+    except Exception as e:
+        return exception_to_envelope(e, context="paper_portfolio_status")
+
+
+@mcp.tool(annotations=ToolAnnotations(title="Strategy Performance", readOnlyHint=True, destructiveHint=False, openWorldHint=False))
+async def strategy_performance(
+    days: int = 30,
+    setup_name: str = "",
+    symbol: str = "",
+    market_regime: str = "",
+) -> dict:
+    """Historical paper-trading performance: trade count, win rate,
+    expectancy, profit factor, max drawdown, after-cost PnL, LONG vs SHORT,
+    and results broken down by market regime.
+
+    Args:
+        days: lookback window in days (default 30).
+        setup_name: optional filter, e.g. "trend_pullback".
+        symbol: optional filter, e.g. "BTCUSDT".
+        market_regime: optional filter, e.g. "TREND_UP".
+    """
+    if days < 1:
+        return make_error(ErrorCode.INVALID_PARAMETER, "days must be >= 1")
+    try:
+        return await _strategy_performance(
+            days=days,
+            setup_name=setup_name.strip() or None,
+            symbol=symbol.strip().upper() or None,
+            market_regime=market_regime.strip().upper() or None,
+        )
+    except Exception as e:
+        return exception_to_envelope(e, context="strategy_performance")
+
+
+@mcp.tool(annotations=ToolAnnotations(title="Trading System Health", readOnlyHint=True, destructiveHint=False, openWorldHint=False))
+async def trading_system_health() -> dict:
+    """Aggregated health of the Bybit collector / paper-trading stack:
+    config validity, PostgreSQL/Redis connectivity, per-symbol order-book
+    consistency and data freshness, and paper-broker state. Use this
+    BEFORE run_futures_opportunity_scan — if this isn't healthy, don't
+    trust a setup from that tool."""
+    try:
+        return await _trading_system_health()
+    except Exception as e:
+        return exception_to_envelope(e, context="trading_system_health")
+
+
+@mcp.tool(annotations=ToolAnnotations(title="Run Futures Opportunity Scan", readOnlyHint=True, destructiveHint=False, openWorldHint=False))
+async def run_futures_opportunity_scan(minimum_score: int = 75, maximum_results: int = 2) -> dict:
+    """THE tool for the periodic market-scan routine. Pulls the
+    already-computed ranking (does not run live analysis inline), returns
+    at most 2 setups or NO_TRADE with reasons. Never places any trade —
+    paper or real. Do not invent values for missing fields; use exactly
+    what this tool returns.
+
+    Args:
+        minimum_score: 0-100 minimum score to qualify (default 75).
+        maximum_results: capped at 2 regardless of the value passed.
+    """
+    if not (0 <= minimum_score <= 100):
+        return make_error(ErrorCode.INVALID_PARAMETER, "minimum_score must be between 0 and 100")
+    try:
+        return await _run_futures_opportunity_scan(minimum_score=minimum_score, maximum_results=maximum_results)
+    except Exception as e:
+        return exception_to_envelope(e, context="run_futures_opportunity_scan")
+
 
 # ---------------------------------------------------------------------------
 # Blanket async offload for every still-synchronous tool.
