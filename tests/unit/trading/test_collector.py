@@ -48,6 +48,31 @@ async def test_orderbook_snapshot_dispatch_updates_state():
 
 
 @pytest.mark.asyncio
+async def test_kline_dispatch_includes_source_timestamp():
+    # Regression test: upsert_candle() requires candle["source_timestamp"]
+    # for its "never overwrite newer with older" guard. The live WebSocket
+    # path (unlike the REST poller's backfill path) originally omitted it,
+    # crashing every closed-candle write with KeyError('source_timestamp').
+    transport = FakeWSTransport(messages=[load_fixture("kline.json")])
+    received = []
+
+    async def on_kline(candle):
+        received.append(candle)
+
+    collector = BybitCollector(
+        transport,
+        ["BTCUSDT"],
+        kline_interval="1",
+        on_kline=on_kline,
+    )
+    msg = await transport.recv()
+    await collector._dispatch(msg)
+    assert len(received) == 1
+    assert "source_timestamp" in received[0]
+    assert received[0]["source_timestamp"] == received[0]["open_time"]
+
+
+@pytest.mark.asyncio
 async def test_trade_dedup_across_dispatch():
     transport = FakeWSTransport(messages=[])
     collector = BybitCollector(transport, ["BTCUSDT"])

@@ -261,7 +261,14 @@ class BybitCollector:
             return
         for kline in parse_klines(msg, symbol):
             if kline.is_closed:
-                await self.on_kline(kline.__dict__)
+                # upsert_candle()'s "never overwrite newer with older" guard
+                # needs source_timestamp. The REST poller's backfill path
+                # already uses open_time for this (see rest_poller.py); the
+                # live WebSocket path must match so both sources compare on
+                # the same clock.
+                payload = kline.__dict__.copy()
+                payload["source_timestamp"] = kline.open_time
+                await self.on_kline(payload)
 
     # -- Health -------------------------------------------------------
 
