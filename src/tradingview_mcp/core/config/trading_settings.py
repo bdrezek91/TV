@@ -93,8 +93,13 @@ class TradingSettings(BaseSettings):
     # certainly meant for a sub-minute (e.g. 1s) bucket that nothing here
     # actually reads for staleness purposes.
     max_data_age_trades_seconds: int = Field(default=120, alias="MAX_DATA_AGE_TRADES_SECONDS")
+    # Same family of bug as candles/trades above, just tighter: this
+    # defaulted to *exactly* ORDERBOOK_SNAPSHOT_INTERVAL_SECONDS (5s), so
+    # any normal DB/network jitter between a snapshot write and the next
+    # evaluation read pushed the age past the threshold. Needs meaningful
+    # slack over the snapshot interval, not an equal value.
     max_data_age_orderbook_seconds: int = Field(
-        default=5, alias="MAX_DATA_AGE_ORDERBOOK_SECONDS"
+        default=15, alias="MAX_DATA_AGE_ORDERBOOK_SECONDS"
     )
     max_data_age_oi_seconds: int = Field(default=600, alias="MAX_DATA_AGE_OI_SECONDS")
     max_data_age_candles_seconds: int = Field(
