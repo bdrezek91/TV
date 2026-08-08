@@ -91,7 +91,16 @@ class TradingSettings(BaseSettings):
     )
     max_data_age_oi_seconds: int = Field(default=600, alias="MAX_DATA_AGE_OI_SECONDS")
     max_data_age_candles_seconds: int = Field(
-        default=180, alias="MAX_DATA_AGE_CANDLES_SECONDS"
+        # This is checked against the *open_time* of the most recently
+        # closed 15m candle (see feature_engine.build_feature_snapshot's
+        # candles_15m usage) — that open_time is, by construction, always
+        # 15-30 minutes in the past (a 15m bar isn't "closed" until 15
+        # minutes after it opened, and the next one only closes 15 minutes
+        # after that). A threshold below ~20 minutes can never be
+        # satisfied regardless of how promptly the collector refreshes,
+        # which silently pins is_tradeable=False forever. 1200s (20min)
+        # covers one full bar plus slack for collector poll latency.
+        default=1200, alias="MAX_DATA_AGE_CANDLES_SECONDS"
     )
 
     # ── Paper trading risk params (used from Block 2 onward, validated now) ──
