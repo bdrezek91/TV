@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import datetime as dt
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any, Optional, Set, Tuple
 from uuid import UUID
 
 from sqlalchemy import select
@@ -95,6 +95,24 @@ async def has_active_duplicate(session: AsyncSession, symbol: str, setup_name: s
         )
     ).scalar_one_or_none()
     return row is not None
+
+
+async def list_active_signal_keys(session: AsyncSession, symbol: str) -> Set[Tuple[str, str]]:
+    """(setup_name, direction) pairs currently CANDIDATE/ACTIVE/FILLED for
+    `symbol`. Pre-fetched once per evaluation cycle so the orchestrator's
+    synchronous `DuplicateChecker.has_duplicate` callback (it can't await
+    a query itself — `evaluate_symbol` is plain sync code) can do a cheap
+    in-memory lookup per generated setup instead of one query each."""
+    active_statuses = (SignalStatus.CANDIDATE, SignalStatus.ACTIVE, SignalStatus.FILLED)
+    rows = (
+        await session.execute(
+            select(StrategySignal.setup_name, StrategySignal.direction).where(
+                StrategySignal.symbol == symbol,
+                StrategySignal.status.in_(active_statuses),
+            )
+        )
+    ).all()
+    return {(r[0], r[1]) for r in rows}
 
 
 async def save_signal(

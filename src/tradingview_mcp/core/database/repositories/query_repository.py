@@ -54,6 +54,39 @@ async def get_latest_derivatives_snapshot(session: AsyncSession, symbol: str) ->
     ).scalar_one_or_none()
 
 
+async def get_recent_orderbook_snapshots(
+    session: AsyncSession, symbol: str, limit: int = 20
+) -> Sequence[OrderbookFeatureSnapshot]:
+    """Chronologically ascending window, for feature_engine's
+    imbalance-persistence / replenishment calculations (a single latest
+    snapshot can't compute those)."""
+    rows = (
+        await session.execute(
+            select(OrderbookFeatureSnapshot)
+            .where(OrderbookFeatureSnapshot.symbol == symbol)
+            .order_by(OrderbookFeatureSnapshot.source_timestamp.desc())
+            .limit(limit)
+        )
+    ).scalars().all()
+    return list(reversed(rows))
+
+
+async def get_recent_derivatives_snapshots(
+    session: AsyncSession, symbol: str, limit: int = 20
+) -> Sequence[DerivativesSnapshot]:
+    """Chronologically ascending window, for feature_engine's OI-change /
+    basis-change calculations."""
+    rows = (
+        await session.execute(
+            select(DerivativesSnapshot)
+            .where(DerivativesSnapshot.symbol == symbol)
+            .order_by(DerivativesSnapshot.source_timestamp.desc())
+            .limit(limit)
+        )
+    ).scalars().all()
+    return list(reversed(rows))
+
+
 async def get_recent_trade_aggregates(
     session: AsyncSession, symbol: str, bucket_seconds: int, limit: int = 30
 ) -> Sequence[TradeAggregate]:
