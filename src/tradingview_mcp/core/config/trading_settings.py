@@ -85,7 +85,14 @@ class TradingSettings(BaseSettings):
     )
 
     # ── Staleness thresholds (seconds) ────────────────────────────────
-    max_data_age_trades_seconds: int = Field(default=10, alias="MAX_DATA_AGE_TRADES_SECONDS")
+    # Checked against the *bucket_start* of the most recent 1-minute
+    # trade_aggregates row (build_feature_snapshot's trade_aggregates_1m
+    # usage) — same structural issue as candles above: a 60s bucket's
+    # bucket_start is inherently up to ~60s old by the time it's written,
+    # so anything below ~90-120s can never be satisfied. 10s was almost
+    # certainly meant for a sub-minute (e.g. 1s) bucket that nothing here
+    # actually reads for staleness purposes.
+    max_data_age_trades_seconds: int = Field(default=120, alias="MAX_DATA_AGE_TRADES_SECONDS")
     max_data_age_orderbook_seconds: int = Field(
         default=5, alias="MAX_DATA_AGE_ORDERBOOK_SECONDS"
     )
