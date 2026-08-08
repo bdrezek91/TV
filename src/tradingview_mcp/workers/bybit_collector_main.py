@@ -146,6 +146,19 @@ async def _run_rest_pollers(settings, stop_event: asyncio.Event) -> None:
                 await poller.poll_derivatives_once()
             except Exception:
                 logger.exception("derivatives poll failed for %s", poller.symbol)
+            # The one-time startup backfill above seeds 15m/1h/4h history,
+            # but nothing else keeps it current — the WebSocket collector
+            # only streams 1m klines (see `kline_interval="1"` below). Left
+            # unrefreshed, these higher-timeframe candles age past
+            # MAX_DATA_AGE_CANDLES_SECONDS within minutes, which pins
+            # is_tradeable=False (and therefore regime="NO_DATA") forever.
+            # A small, cheap re-backfill each cycle keeps them fresh
+            # without re-fetching the full 210-candle history.
+            for interval in ("15", "60", "240"):
+                try:
+                    await poller.backfill_candles(interval, target_count=3)
+                except Exception:
+                    logger.exception("candle refresh failed for %s interval=%s", poller.symbol, interval)
             try:
                 await asyncio.wait_for(stop_event.wait(), timeout=settings.oi_poll_interval_seconds)
             except asyncio.TimeoutError:
