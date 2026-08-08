@@ -46,8 +46,22 @@ def _default_analyzer(symbol: str, exchange: str) -> Dict[str, Any]:
         analyze_coin,
         run_multi_timeframe_analysis,
     )
+    from tradingview_mcp.core.utils.validators import normalize_tradingview_symbol, sanitize_exchange
 
-    mtf = run_multi_timeframe_analysis(symbol, exchange)
+    # run_multi_timeframe_analysis requires a full "EXCHANGE:SYMBOL" string
+    # (see its own docstring) — unlike analyze_coin, which resolves a bare
+    # symbol + exchange itself. Mirrors exactly what the public
+    # `multi_timeframe_analysis` MCP tool does in server.py. Passing the
+    # bare symbol here (as this used to) made every timeframe fail
+    # against TradingView's scanner, which fetch_tradingview_context's
+    # caller only ever saw as a generic "upstream cliff" — confirmed live
+    # on the VPS (`get_multiple_analysis` with a correctly prefixed symbol
+    # succeeds immediately; run_multi_timeframe_analysis with a bare one
+    # doesn't).
+    resolved_exchange = sanitize_exchange(exchange, "KUCOIN")
+    full_symbol = normalize_tradingview_symbol(symbol, resolved_exchange)
+
+    mtf = run_multi_timeframe_analysis(full_symbol, resolved_exchange)
     single = analyze_coin(symbol, exchange, "1h")
     return {"mtf": mtf, "single": single}
 
