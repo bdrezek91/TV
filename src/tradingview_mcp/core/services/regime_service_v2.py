@@ -93,7 +93,14 @@ def build_features_from_windows(
     liquidations = fe.compute_liquidation_features(liq_1m, liq_5m, liq_15m)
 
     source_timestamps = {
-        "candles": candles_15m[-1]["open_time"] if candles_15m else None,
+        # "candles" tracks 1h (the finer of the two timeframes the
+        # classifier's own UNSTABLE_DATA gate hard-requires -- see
+        # regime_classifier_v2._data_quality_check, which now only
+        # requires 4h+1h, not 15m). Using candles_15m here reintroduced
+        # the exact same "15m retention is shorter than the replay window"
+        # bug one layer up: is_tradeable would still collapse to False on
+        # missing 15m even after the classifier's own check was relaxed.
+        "candles": candles_1h[-1]["open_time"] if candles_1h else None,
         "trades": trade_aggs[-1]["bucket_start"] if trade_aggs else None,
         "orderbook": ob_latest.get("source_timestamp") if ob_latest else None,
         "derivatives": deriv_latest.get("source_timestamp") if deriv_latest else None,
