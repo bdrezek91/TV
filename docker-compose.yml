@@ -220,9 +220,18 @@ services:
       - trading-net
 
 networks:
+  # `external: true` -- this network is created ONCE and never torn down
+  # by `docker compose down`/recreate cycles. It's shared with a Caddy
+  # reverse proxy from a completely separate Compose project (tvscanai.pl
+  # -> Caddy -> this network -> tradingview-mcp:8000) that manually
+  # attaches to it by name. If Compose owned this network's lifecycle,
+  # every `docker compose down` (or certain recreate paths) would destroy
+  # and recreate it, silently dropping that manual attachment and taking
+  # the public domain down with a 502 until someone manually reconnects
+  # it -- exactly what happened before this was made external.
   trading-net:
-    driver: bridge
-    internal: false
+    external: true
+    name: tradingview-mcp_trading-net
 
 volumes:
   trading-postgres-data:
