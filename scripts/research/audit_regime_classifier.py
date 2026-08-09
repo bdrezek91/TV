@@ -432,11 +432,11 @@ print("-" * 70)
 print("Live snapshot:")
 ls = report["live_snapshot"]
 if "error" in ls:
-    print(f"  ERROR: {ls['error'][:500]}")
+    print(f"  ERROR: {ls['error'][-2000:]}")
 else:
     for sym, r in ls["symbols"].items():
         if "error" in r:
-            print(f"  {sym:10s} ERROR: {r['error'][:200]}")
+            print(f"  {sym:10s} ERROR: {r['error'][-2000:]}")
             continue
         top_reasons = "; ".join(r["reasons"][:3])
         top_counter = r["counterarguments"][0] if r["counterarguments"] else "(none)"
@@ -453,7 +453,7 @@ print("-" * 70)
 print("Historical backtest (look-ahead guarded, 4h decision points):")
 for sym, s in report["historical_backtest"].items():
     if "error" in s:
-        print(f"  {sym:10s} ERROR: {s['error'][:200]}")
+        print(f"  {sym:10s} ERROR: {s['error'][-2000:]}")
         continue
     if s.get("points", 0) == 0:
         print(f"  {sym:10s} {s.get('note', 'no data')}")
