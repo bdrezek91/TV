@@ -58,6 +58,7 @@ async def run_pipeline_for_symbol(
         "regime": regime,
         "setups": setups,
         "confirmations": confirmations,
+        "orderbook": built["orderbook"],
         "data_quality": built["data_quality"],
         "price_at_decision": price_at_decision,
         "_state": state,

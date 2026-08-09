@@ -42,7 +42,6 @@ report: dict = {
 # ── Import check (fatal if this fails -- that IS the point) ────────────────
 from tradingview_mcp.core.analysis import orderflow_confirmation_v2 as of  # noqa: E402
 from tradingview_mcp.core.services import signal_pipeline_v2 as pipeline  # noqa: E402
-from tradingview_mcp.core.services import signal_snapshot_service_v2 as snap  # noqa: E402
 from tradingview_mcp.core.config.trading_settings import get_trading_settings  # noqa: E402
 from tradingview_mcp.core.database.session import session_scope  # noqa: E402
 from tradingview_mcp.core.database.repositories import query_repository as qr  # noqa: E402
@@ -257,7 +256,6 @@ async def run_live_pipeline() -> dict:
     ordered = (["BTCUSDT"] if "BTCUSDT" in symbols else []) + [s for s in symbols if s != "BTCUSDT"]
 
     results = {}
-    all_snapshots = []
     btc_regime = None
     async with session_scope() as session:
         for sym in ordered:
@@ -267,21 +265,10 @@ async def run_live_pipeline() -> dict:
                 results[sym] = r
                 if sym == "BTCUSDT":
                     btc_regime = r["regime"]["primary_regime"]
-                records = snap.build_snapshots(
-                    sym, r["as_of"], r["regime"], r["setups"], r["confirmations"],
-                    r["data_quality"], r["price_at_decision"],
-                )
-                all_snapshots.extend(records)
             except Exception:
                 results[sym] = {"error": traceback.format_exc()}
 
         trade_agg_span = await _trade_aggregates_span(session, ordered)
-
-    try:
-        snap.append_snapshots(all_snapshots)
-        snapshot_write_error = None
-    except Exception:
-        snapshot_write_error = traceback.format_exc()
 
     valid = {s: r for s, r in results.items() if "error" not in r}
     chain_summary = {}
@@ -304,9 +291,9 @@ async def run_live_pipeline() -> dict:
                                for t, c in r["confirmations"].items()},
         } if "error" not in r else {"error": r["error"]} for sym, r in results.items()},
         "chain_summary": chain_summary,
-        "num_snapshots_written": len(all_snapshots),
-        "snapshot_path": str(snap.SNAPSHOT_PATH),
-        "snapshot_write_error": snapshot_write_error,
+        "snapshot_note": "Durable snapshot writing moved to Warstwa 4 (scripts/research/audit_risk_manager.py) -- "
+                          "regime->setup->orderflow->risk is the complete decision chain worth persisting, and "
+                          "writing it here too would collide on the same signal_id within the same decision hour.",
         "trade_aggregates_availability": trade_agg_span,
     }
 
@@ -368,9 +355,7 @@ else:
         else:
             fired_str = "(no setup fired)"
         print(f"  {sym:10s} regime={c['regime']:22s} conf={c['regime_confidence']:.2f}  {fired_str}")
-    print(f"  snapshots written: {lr['num_snapshots_written']} -> {lr['snapshot_path']}")
-    if lr.get("snapshot_write_error"):
-        print(f"  SNAPSHOT WRITE ERROR: {lr['snapshot_write_error'][-1000:]}")
+    print(f"  {lr['snapshot_note']}")
     ta = lr["trade_aggregates_availability"]
     print(f"  trade_aggregates availability: earliest={ta['earliest']} latest={ta['latest']} "
           f"span={ta['hours_span']}h total_rows={ta['total_rows_all_symbols']}")
