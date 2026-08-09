@@ -162,7 +162,13 @@ def _liquidation_regime(liquidations: dict, price_action_15m: dict) -> Optional[
 
 
 def _data_quality_check(tf: Dict[str, dict], data_quality: dict) -> Optional[dict]:
-    missing = [k for k in ("4h", "1h", "15m") if not (tf.get(k) or {}).get("available")]
+    # 15m is transition-detection-only per the architecture (see module
+    # docstring / squeeze+breakout+trend logic below, which already treat it
+    # as optional via `.get("available")` guards) -- it must NOT be a hard
+    # requirement here. Only 4h (main regime) and 1h (current context) gate
+    # UNSTABLE_DATA; a missing 15m read is surfaced as a warning instead,
+    # by the caller.
+    missing = [k for k in ("4h", "1h") if not (tf.get(k) or {}).get("available")]
     dq_score = data_quality.get("data_quality_score", 0)
     stale = data_quality.get("stale_fields", [])
     if missing or dq_score < MIN_DATA_QUALITY_SCORE or not data_quality.get("is_tradeable", False):
@@ -197,6 +203,8 @@ def classify_from_features(
 
     secondary_flags: List[str] = []
     warnings: List[str] = list(data_quality.get("missing_fields", []) or [])
+    if not (tf.get("15m") or {}).get("available"):
+        warnings.append("15m price-action unavailable -- transition detection degraded, primary regime unaffected")
 
     decision = _data_quality_check(tf, data_quality)
 
