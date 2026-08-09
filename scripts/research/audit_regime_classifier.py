@@ -199,6 +199,82 @@ except Exception:
 
 synth_failed = [k for k, v in report["synthetic_tests"].items() if isinstance(v, dict) and not v.get("pass", False)]
 
+# What each of the 14 synthetic scenarios actually exercises. Several of
+# audit-6's fix areas (look-ahead bias, disabled staleness gate, warm-up
+# minimums) are properties of the HISTORICAL REPLAY HARNESS, not of
+# classify_from_features itself, so no synthetic scenario tests them
+# directly -- they're verified structurally instead (see
+# regression_checks below and the historical_backtest's skipped_no_history
+# / history_span fields). Listed honestly rather than overclaimed.
+TEST_CATEGORIES = {
+    "1_stable_uptrend": "TREND",
+    "2_stable_downtrend": "TREND",
+    "3_consolidation": "RANGE (positive evidence)",
+    "4_squeeze": "SQUEEZE",
+    "5_breakout_up": "BREAKOUT",
+    "6_false_breakout": "RANGE fallback / rejected-breakout evidence",
+    "7_panic_liquidation_longs": "PANIC LIQUIDATION",
+    "8_panic_liquidation_shorts": "PANIC LIQUIDATION",
+    "9_low_liquidity": "LIQUIDITY",
+    "10_unstable_stale_data": "DATA QUALITY / STALENESS (live-path gate)",
+    "11_conflicting_intervals": "NO_EDGE (timeframe disagreement)",
+    "12_missing_orderflow_degraded_mode": "NO_EDGE (missing sources, degraded mode)",
+    "13_hysteresis_holds_on_first_candidate": "HYSTERESIS",
+    "14_panic_liquidation_overrides_hysteresis_immediately": "HYSTERESIS OVERRIDE",
+}
+
+
+def run_regression_checks() -> dict:
+    """Small, targeted checks for the two audit-6 fixes that live INSIDE
+    classify_from_features but weren't distinctly covered by the 14 named
+    scenarios above: CVD-null-treated-as-flat, and RANGE-requires-positive-
+    evidence. The other three audit-6 fixes (look-ahead bias, disabled
+    staleness gate, warm-up minimums) are historical-replay-harness
+    properties with no `classify_from_features` equivalent to check here."""
+    results = {}
+
+    # CVD missing must NOT count as "flat" confirming evidence for SQUEEZE.
+    # Same compressed/low-vol/OI-building setup as scenario 4, but with
+    # volume unavailable entirely -- if the bug were still present this
+    # would still fire SQUEEZE off the (wrongly) assumed-flat CVD.
+    r = rc.classify_from_features(
+        "TESTUSDT", _NOW,
+        {"4h": _pa(structure="CONTRACTING", atr_pct=Decimal("0.3")),
+         "1h": _pa(structure="CONTRACTING", atr_pct=Decimal("0.3")),
+         "15m": _pa(structure="CONTRACTING", atr_pct=Decimal("0.3"))},
+        _vol(False), _ob(), _fut(True, oi_change_1h_pct=Decimal("3")), _liq(), _DQ_GOOD,
+    )
+    results["cvd_null_not_treated_as_flat"] = {
+        "pass": r["primary_regime"] != "SQUEEZE",
+        "expected": "NOT SQUEEZE (missing CVD must not confirm flatness)",
+        "got": r["primary_regime"],
+    }
+
+    # Structure is EXPANDING everywhere (so "non_expanding" range evidence
+    # is false) with ATR unavailable (so "moderate_vol" evidence is false
+    # too) and no position_in_range (so the breakout branch never resolves
+    # either way) -- genuinely no positive evidence for ANY regime. Must
+    # land on NO_EDGE, not the old unconditional RANGE fallback.
+    r = rc.classify_from_features(
+        "TESTUSDT", _NOW,
+        {"4h": _pa(structure="EXPANDING", atr_pct=None),
+         "1h": _pa(structure="EXPANDING", atr_pct=None),
+         "15m": _pa(structure="EXPANDING", atr_pct=None)},
+        _vol(False), _ob(False), _fut(False), _liq(), _DQ_GOOD,
+    )
+    results["range_requires_positive_evidence"] = {
+        "pass": r["primary_regime"] == "NO_EDGE",
+        "expected": "NO_EDGE (no unconditional RANGE default when there's zero positive evidence)",
+        "got": r["primary_regime"],
+    }
+    return results
+
+
+try:
+    report["regression_checks"] = run_regression_checks()
+except Exception:
+    report["regression_checks"] = {"_error": traceback.format_exc()}
+
 
 # ══════════════════════════════════════════════════════════════════════════
 # PHASE 2: live snapshot across all tracked symbols
@@ -459,6 +535,62 @@ async def run_historical_backtest() -> dict:
     return summaries
 
 
+async def _staleness_recheck(stale_symbols: list) -> dict:
+    """Answers the operational question directly instead of leaving it as
+    a one-off observation: does 'stale trades' persist after a few more
+    minutes, and does it keep hitting the same pairs? Waits, then
+    reclassifies only the flagged symbols on a fresh fetch."""
+    if not stale_symbols:
+        return {"note": "no symbols flagged 'stale trades' in the live snapshot -- nothing to recheck"}
+    wait_seconds = 180
+    await asyncio.sleep(wait_seconds)
+    results = {}
+    async with session_scope() as session:
+        for sym in stale_symbols:
+            try:
+                r = await rs.classify_symbol(session, sym)
+                r.pop("_state", None)
+                results[sym] = {
+                    "regime": r["primary_regime"], "reasons": r["reasons"],
+                    "data_quality": r["data_quality"], "still_stale_trades": "trades" in " ".join(r["reasons"]),
+                }
+            except Exception:
+                results[sym] = {"error": traceback.format_exc()[-1000:]}
+    still_stale = [s for s, r in results.items() if r.get("still_stale_trades")]
+    return {
+        "waited_seconds": wait_seconds,
+        "symbols_rechecked": stale_symbols,
+        "results": results,
+        "still_stale_after_wait": still_stale,
+        "resolved": [s for s in stale_symbols if s not in still_stale],
+    }
+
+
+def _hours_span(span: dict) -> float | None:
+    if not span or not span.get("earliest") or not span.get("latest"):
+        return None
+    e = dt.datetime.fromisoformat(span["earliest"])
+    latest = dt.datetime.fromisoformat(span["latest"])
+    return round((latest - e).total_seconds() / 3600, 2)
+
+
+def _aggregate_data_availability(historical_backtest: dict) -> dict:
+    per_source: dict = {"c4h": [], "c1h": [], "c15m": [], "trades": []}
+    for s in historical_backtest.values():
+        if not isinstance(s, dict):
+            continue
+        for src, data in (s.get("history_span") or {}).items():
+            hours = _hours_span(data)
+            if hours is not None:
+                per_source.setdefault(src, []).append(hours)
+    out = {}
+    for src, vals in per_source.items():
+        out[src] = ({"min_hours": min(vals), "max_hours": max(vals),
+                      "avg_hours": round(sum(vals) / len(vals), 1), "symbols_counted": len(vals)}
+                     if vals else {"min_hours": None, "max_hours": None, "avg_hours": None, "symbols_counted": 0})
+    return out
+
+
 async def _run_phases_2_and_3() -> None:
     # Both phases share the process-wide lazy-singleton async engine from
     # core/database/session.py. Running them under two separate top-level
@@ -470,32 +602,79 @@ async def _run_phases_2_and_3() -> None:
     except Exception:
         report["live_snapshot"] = {"error": traceback.format_exc()}
 
+    stale_symbols = []
+    ls = report["live_snapshot"]
+    if isinstance(ls, dict) and "symbols" in ls:
+        for sym, r in ls["symbols"].items():
+            if isinstance(r, dict) and "trades" in " ".join(r.get("reasons", []) or []):
+                stale_symbols.append(sym)
+    try:
+        report["staleness_recheck"] = await _staleness_recheck(stale_symbols)
+    except Exception:
+        report["staleness_recheck"] = {"error": traceback.format_exc()}
+
     try:
         report["historical_backtest"] = await run_historical_backtest()
     except Exception:
         report["historical_backtest"] = {"error": traceback.format_exc()}
+
+    if isinstance(report["historical_backtest"], dict):
+        report["data_availability"] = _aggregate_data_availability(report["historical_backtest"])
 
 
 asyncio.run(_run_phases_2_and_3())
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Write report + print summary
+# Warstwa 1 status -- explicit, not implied. See conversation record for
+# the exact criteria: logically/architecturally complete, synthetically
+# tested, live-smoke-tested, but NOT statistically validated (trade_
+# aggregates history is currently ~20h deep, nowhere near enough for a
+# meaningful historical backtest yet) and NOT wired into real execution.
 # ══════════════════════════════════════════════════════════════════════════
+
+n_synth_pass = sum(1 for v in report["synthetic_tests"].values() if isinstance(v, dict) and v.get("pass"))
+n_synth_total = sum(1 for v in report["synthetic_tests"].values() if isinstance(v, dict))
+n_regr_pass = sum(1 for v in report.get("regression_checks", {}).values() if isinstance(v, dict) and v.get("pass"))
+n_regr_total = sum(1 for v in report.get("regression_checks", {}).values() if isinstance(v, dict))
+
+report["status"] = "IMPLEMENTATION_COMPLETE_VALIDATION_PENDING"
+report["layer_1_status"] = {
+    "logically_architecturally_complete": True,
+    "synthetically_tested": n_synth_pass == n_synth_total and n_synth_total > 0,
+    "synthetic_tests_pass": f"{n_synth_pass}/{n_synth_total}",
+    "regression_checks_pass": f"{n_regr_pass}/{n_regr_total}",
+    "live_smoke_tested": "error" not in report.get("live_snapshot", {"error": True}),
+    "statistically_validated": False,
+    "statistically_validated_reason": "trade_aggregates history is currently far too short (see data_availability.trades) for a statistically meaningful historical backtest",
+    "production_ready": False,
+    "wired_to_real_execution": False,
+}
 
 REPORT_DIR.mkdir(parents=True, exist_ok=True)
 REPORT_PATH.write_text(json.dumps(report, indent=2, default=str))
 
 print("=" * 70)
 print("REGIME CLASSIFIER v2 -- AUDIT REPORT")
+print(f"STATUS: {report['status']}")
 print("=" * 70)
 n_pass = sum(1 for v in report["synthetic_tests"].values() if isinstance(v, dict) and v.get("pass"))
 n_total = sum(1 for v in report["synthetic_tests"].values() if isinstance(v, dict))
 print(f"Synthetic tests: {n_pass}/{n_total} PASS")
+for name, cat in TEST_CATEGORIES.items():
+    t = report["synthetic_tests"].get(name, {})
+    mark = "PASS" if isinstance(t, dict) and t.get("pass") else "FAIL/MISSING"
+    print(f"  [{mark:12s}] {name:52s} ({cat})")
 if synth_failed:
     for name in synth_failed:
         t = report["synthetic_tests"][name]
         print(f"  FAILED: {name} -> expected {t['expected']}, got {t['got']} (confidence {t['confidence']})")
+print("-" * 70)
+print("Regression checks (audit-6 fixes not covered by the 14 named scenarios):")
+for name, r in report.get("regression_checks", {}).items():
+    if not isinstance(r, dict):
+        continue
+    print(f"  [{'PASS' if r.get('pass') else 'FAIL':4s}] {name}: expected {r.get('expected')}, got {r.get('got')}")
 print("-" * 70)
 print("Live snapshot:")
 ls = report["live_snapshot"]
@@ -517,6 +696,23 @@ else:
     print(f"  highest data quality: {ls['highest_data_quality']}  lowest: {ls['lowest_data_quality']}")
     if ls["same_regime_correlation_warning"]:
         print(f"  WARNING: {ls['same_regime_correlation_warning']}")
+print("-" * 70)
+print("Staleness recheck ('stale trades' symbols, rechecked after a 180s wait):")
+sr = report.get("staleness_recheck", {})
+if "note" in sr:
+    print(f"  {sr['note']}")
+elif "error" in sr:
+    print(f"  ERROR: {sr['error'][-2000:]}")
+else:
+    print(f"  rechecked: {sr['symbols_rechecked']}")
+    print(f"  resolved after {sr['waited_seconds']}s: {sr['resolved'] or '(none)'}")
+    print(f"  still stale after {sr['waited_seconds']}s: {sr['still_stale_after_wait'] or '(none)'}")
+    if sr["still_stale_after_wait"]:
+        print("  -> OPERATIONAL WARNING: persistent staleness on these pairs, not a one-off restart artifact")
+print("-" * 70)
+print("Data availability (hours of history per source, across replayed symbols):")
+for src, d in report.get("data_availability", {}).items():
+    print(f"  {src:8s} min={d['min_hours']}h avg={d['avg_hours']}h max={d['max_hours']}h (n={d['symbols_counted']} symbols)")
 print("-" * 70)
 print("Historical backtest (look-ahead guarded, 4h decision points):")
 for sym, s in report["historical_backtest"].items():
