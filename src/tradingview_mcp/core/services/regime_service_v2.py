@@ -135,18 +135,14 @@ def build_features_from_windows(
             "liquidations": liquidations, "data_quality": data_quality}
 
 
-async def classify_symbol(
-    session: AsyncSession,
-    symbol: str,
-    *,
-    as_of: Optional[dt.datetime] = None,
-    btc_regime: Optional[str] = None,
-    previous_state: Optional[dict] = None,
-) -> dict:
-    """Live classification: fetches the current window of each data source
-    for `symbol` and classifies "as of now" (or `as_of`, for testing)."""
-    as_of = as_of or dt.datetime.now(dt.timezone.utc)
-
+async def fetch_and_build_live_features(session: AsyncSession, symbol: str, *, as_of: dt.datetime) -> dict:
+    """Fetches the current window of each data source for `symbol` and
+    assembles it into the same feature dict `classify_from_features` /
+    `setup_detector_v2.detect_setups` both need. Factored out of
+    `classify_symbol` so Warstwa 2's setup detector can build a setup on
+    the EXACT same feature snapshot the regime call used, rather than a
+    second DB round-trip that could race against live data changing
+    in between (and would just duplicate the query cost for no benefit)."""
     candles_4h = [candle_dict(c) for c in await qr.get_recent_candles(session, symbol, "240", limit=120)]
     candles_1h = [candle_dict(c) for c in await qr.get_recent_candles(session, symbol, "60", limit=120)]
     candles_15m = [candle_dict(c) for c in await qr.get_recent_candles(session, symbol, "15", limit=120)]
@@ -168,10 +164,24 @@ async def classify_symbol(
     ob_recent = [orderbook_dict(r) for r in await qr.get_recent_orderbook_snapshots(session, symbol, limit=20)]
     deriv_recent = [derivatives_dict(r) for r in await qr.get_recent_derivatives_snapshots(session, symbol, limit=20)]
 
-    built = build_features_from_windows(
+    return build_features_from_windows(
         candles_4h, candles_1h, candles_15m, trade_aggs, liq_1m, liq_5m, liq_15m,
         ob_recent, deriv_recent, now=as_of, max_ages=LIVE_MAX_AGES,
     )
+
+
+async def classify_symbol(
+    session: AsyncSession,
+    symbol: str,
+    *,
+    as_of: Optional[dt.datetime] = None,
+    btc_regime: Optional[str] = None,
+    previous_state: Optional[dict] = None,
+) -> dict:
+    """Live classification: fetches the current window of each data source
+    for `symbol` and classifies "as of now" (or `as_of`, for testing)."""
+    as_of = as_of or dt.datetime.now(dt.timezone.utc)
+    built = await fetch_and_build_live_features(session, symbol, as_of=as_of)
 
     return rc.classify_from_features(
         symbol, as_of, built["tf"], built["volume"], built["orderbook"], built["futures"],
