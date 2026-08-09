@@ -21,7 +21,10 @@ from tradingview_mcp.core.database.repositories import query_repository as qr
 # classify_symbol_from_windows -- these are for the LIVE path only, where
 # "now" really is wall-clock now.
 LIVE_MAX_AGES = {
-    "candles": 1200.0,
+    # "candles" tracks the 1h close (see build_features_from_windows) --
+    # a fresh 1h candle can legitimately be up to ~60min old, so the
+    # threshold needs headroom above that, not the old 15m-cadence value.
+    "candles": 4500.0,
     "trades": 120.0,
     "orderbook": 15.0,
     "derivatives": 600.0,

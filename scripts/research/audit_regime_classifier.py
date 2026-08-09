@@ -276,10 +276,25 @@ async def _fetch_all(session, symbol: str) -> dict:
     }
 
 
+def _history_span(name: str, rows: list, ts_key: str) -> dict:
+    if not rows:
+        return {"source": name, "count": 0, "earliest": None, "latest": None}
+    tss = [r[ts_key] for r in rows]
+    return {"source": name, "count": len(rows), "earliest": min(tss).isoformat(), "latest": max(tss).isoformat()}
+
+
 def _replay_symbol(symbol: str, data: dict, btc_regime_by_ts: dict | None) -> tuple[dict, dict]:
     """Returns (summary, regime_by_ts). LOOK-AHEAD GUARD: every window
     passed into feature_engine/classify is sliced to timestamps <= cutoff
-    -- nothing after `cutoff` is visible at that step."""
+    -- nothing after `cutoff` is visible at that step.
+
+    Points before 1h-candle/trade-aggregate history actually exists (e.g.
+    because those aggregations only started running at some later
+    deployment than the bulk-backfilled 4h candles) are SKIPPED, not
+    recorded as UNSTABLE_DATA -- "the infrastructure didn't have this data
+    yet" is not a market condition the classifier is describing, and
+    counting it as one would misrepresent both the UNSTABLE_DATA% and the
+    regime-duration stats."""
     c4h = data["c4h"]
     if len(c4h) < 25:
         return {"symbol": symbol, "points": 0, "note": "insufficient 4h history for a meaningful replay"}, {}
@@ -287,12 +302,18 @@ def _replay_symbol(symbol: str, data: dict, btc_regime_by_ts: dict | None) -> tu
     timeline = []
     regime_by_ts: dict = {}
     state = None
+    skipped_no_history = 0
     for i in range(20, len(c4h)):
         cutoff = c4h[i]["open_time"]
         w4h = c4h[max(0, i - 100):i + 1]
         w1h = [c for c in data["c1h"] if c["open_time"] <= cutoff][-100:]
         w15m = [c for c in data["c15m"] if c["open_time"] <= cutoff][-100:]
         wtr = [r for r in data["trades"] if r["bucket_start"] <= cutoff][-30:]
+
+        if not w1h or not wtr:
+            skipped_no_history += 1
+            continue
+
         wliq_series = [r for r in data["liq_1m_series"] if r["bucket_start"] <= cutoff]
         wliq_1m = wliq_series[-1:]
         wliq_5m = wliq_series[-5:]
@@ -312,7 +333,15 @@ def _replay_symbol(symbol: str, data: dict, btc_regime_by_ts: dict | None) -> tu
         timeline.append({"timestamp": cutoff.isoformat(), "regime": result["primary_regime"], "confidence": result["confidence"]})
         regime_by_ts[cutoff] = result["primary_regime"]
 
-    return _summarize_timeline(symbol, timeline, c4h), regime_by_ts
+    summary = _summarize_timeline(symbol, timeline, c4h)
+    summary["skipped_no_history"] = skipped_no_history
+    summary["history_span"] = {
+        "c4h": _history_span("c4h", data["c4h"], "open_time"),
+        "c1h": _history_span("c1h", data["c1h"], "open_time"),
+        "c15m": _history_span("c15m", data["c15m"], "open_time"),
+        "trades": _history_span("trades", data["trades"], "bucket_start"),
+    }
+    return summary, regime_by_ts
 
 
 def _summarize_timeline(symbol: str, timeline: list, c4h: list) -> dict:
@@ -458,10 +487,14 @@ for sym, s in report["historical_backtest"].items():
     if s.get("points", 0) == 0:
         print(f"  {sym:10s} {s.get('note', 'no data')}")
         continue
-    print(f"  {sym:10s} points={s['points']} changes={s['num_regime_changes']} "
+    print(f"  {sym:10s} points={s['points']} skipped_no_history={s.get('skipped_no_history', 0)} "
+          f"changes={s['num_regime_changes']} "
           f"avg_dur={s['avg_regime_duration_bars_4h']}bars NO_EDGE%={s['pct_time_no_edge']} "
           f"UNSTABLE%={s['pct_time_unstable_data']} "
           f"trend_align%={s['trend_forward_alignment_pct_3bars']} (n={s['trend_points_evaluated']}) "
           f"breakout_expansion%={s['breakout_range_expansion_pct']} (n={s['breakout_points_evaluated']})")
+    if sym == "BTCUSDT" and s.get("history_span"):
+        for src, span in s["history_span"].items():
+            print(f"             {src:8s} count={span['count']:5d} earliest={span['earliest']} latest={span['latest']}")
 print("-" * 70)
 print(f"Full report written to: {REPORT_PATH}")
