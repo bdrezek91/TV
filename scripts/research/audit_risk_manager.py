@@ -127,16 +127,19 @@ def run_synthetic_tests() -> dict:
     rec("8_max_open_positions", r["decision"] == "REJECTED" and any("max_open_positions" in x for x in r["rejection_reasons"]),
         "REJECTED (max_open_positions)", f"{r['decision']} {r['rejection_reasons']}")
 
-    portfolio_exposed = dict(_EMPTY_PORTFOLIO, open_positions=[{"symbol": "OTHERUSDT", "direction": "LONG", "position_value": Decimal("5000")}])
+    # BTCUSDT isn't in the correlated ALTS group, so this isolates the
+    # total-exposure limit specifically (binding_limit should name it, not
+    # the correlated group).
+    portfolio_exposed = dict(_EMPTY_PORTFOLIO, open_positions=[{"symbol": "BTCUSDT", "direction": "LONG", "position_value": Decimal("5000")}])
     r = rm.evaluate_risk("ETHUSDT", _NOW, _REGIME_OK, _setup("LONG"), _confirmation("CONFIRMED"), _OB_OK, _DQ_GOOD, portfolio_exposed)
-    rec("9_max_total_exposure", r["decision"] == "REJECTED" and any("portfolio exposure" in x for x in r["rejection_reasons"]),
-        "REJECTED (total exposure)", f"{r['decision']} {r['rejection_reasons']}")
+    rec("9_max_total_exposure", r["decision"] == "REJECTED" and any("total_exposure" in x for x in r["rejection_reasons"]),
+        "REJECTED, binding_limit names total_exposure", f"{r['decision']} {r['rejection_reasons']}")
 
     portfolio_alts = dict(_EMPTY_PORTFOLIO, open_positions=[{"symbol": "SOLUSDT", "direction": "LONG", "position_value": Decimal("1500")},
                                                              {"symbol": "BNBUSDT", "direction": "LONG", "position_value": Decimal("1500")}])
     r = rm.evaluate_risk("ETHUSDT", _NOW, _REGIME_OK, _setup("LONG"), _confirmation("CONFIRMED"), _OB_OK, _DQ_GOOD, portfolio_alts)
-    rec("10_correlated_alt_group_exposure", r["decision"] == "REJECTED" and any("portfolio exposure" in x for x in r["rejection_reasons"]),
-        "REJECTED (correlated ALTS group exposure -- not treated as independent)", f"{r['decision']} {r['rejection_reasons']}")
+    rec("10_correlated_alt_group_exposure", r["decision"] == "REJECTED" and any("correlated_group_exposure" in x for x in r["rejection_reasons"]),
+        "REJECTED, binding_limit names correlated_group_exposure -- not treated as independent trades", f"{r['decision']} {r['rejection_reasons']}")
 
     dq_bad = {"is_tradeable": False, "data_quality_score": 20, "source_timestamps": {}}
     r = rm.evaluate_risk("ETHUSDT", _NOW, _REGIME_OK, _setup("LONG"), _confirmation("CONFIRMED"), _OB_OK, dq_bad, _EMPTY_PORTFOLIO)

@@ -127,6 +127,26 @@ async def get_recent_candles(session: AsyncSession, symbol: str, interval: str, 
     return list(reversed(rows))
 
 
+async def get_candles_between(
+    session: AsyncSession, symbol: str, interval: str, start: dt.datetime, end: dt.datetime, limit: int = 5000,
+) -> Sequence[Candle]:
+    """Chronologically ascending, `start < open_time <= end` -- for
+    walking forward through already-closed bars since a prior checkpoint
+    (e.g. paper_broker_service_v2 advancing an order's simulated fill/exit
+    state candle-by-candle). Exclusive of `start` so re-running from the
+    same checkpoint never re-processes a candle already seen."""
+    rows = (
+        await session.execute(
+            select(Candle)
+            .where(Candle.symbol == symbol, Candle.interval == interval,
+                   Candle.open_time > start, Candle.open_time <= end)
+            .order_by(Candle.open_time.asc())
+            .limit(limit)
+        )
+    ).scalars().all()
+    return list(rows)
+
+
 async def get_latest_market_regime(session: AsyncSession, symbol: str) -> Optional[MarketRegime]:
     return (
         await session.execute(

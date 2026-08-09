@@ -174,19 +174,28 @@ def _check_portfolio_limits(symbol: str, direction: str, position_value: Decimal
     dir_exposure_after = (long_exposure if direction == "LONG" else short_exposure) + position_value
     room_direction = max_direction - (long_exposure if direction == "LONG" else short_exposure)
 
-    room = min(room_total, room_symbol, room_group, room_direction)
+    room_by_limit = {
+        "total_exposure": room_total, "symbol_exposure": room_symbol,
+        "correlated_group_exposure": room_group, "directional_concentration": room_direction,
+    }
+    room = min(room_by_limit.values())
+    # Name the SPECIFIC binding constraint(s) rather than a generic message
+    # -- with four independent caps, "room=0" alone doesn't say which one
+    # actually fired, which matters for anyone reading the rejection later.
+    binding = sorted(name for name, r in room_by_limit.items() if r == room)
     limits_used = {
         "total_exposure_before": total_exposure, "max_total_exposure": max_total,
         "symbol_exposure_before": symbol_exposure, "max_symbol_exposure": max_symbol,
         "correlated_group": group, "group_exposure_before": group_exposure, "max_group_exposure": max_group,
         "directional_exposure_before": long_exposure if direction == "LONG" else short_exposure,
         "max_directional_exposure": max_direction,
+        "binding_limit": binding,
     }
     if room <= 0:
-        return {"hard_reject": True, "reason": f"portfolio exposure limit reached (room={room} for total/symbol/group/direction)",
+        return {"hard_reject": True, "reason": f"portfolio limit reached: {', '.join(binding)} (room={room})",
                 "reduced_to_value": None, "limits_used": limits_used}
     if position_value > room:
-        return {"hard_reject": False, "reason": f"position reduced to fit remaining portfolio room ({room} of requested {position_value})",
+        return {"hard_reject": False, "reason": f"position reduced to fit remaining room on {', '.join(binding)} ({room} of requested {position_value})",
                 "reduced_to_value": room, "limits_used": limits_used}
     return {"hard_reject": False, "reason": None, "reduced_to_value": None, "limits_used": limits_used}
 

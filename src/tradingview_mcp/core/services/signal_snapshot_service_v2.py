@@ -31,7 +31,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 SNAPSHOT_PATH = Path("/app/artifacts/research/signals/signals.jsonl")
 
@@ -132,3 +132,35 @@ def append_snapshots(records: List[dict], path: Optional[Path] = None) -> dict:
             for r in new_records:
                 f.write(json.dumps(r, default=str) + "\n")
     return {"written": len(new_records), "duplicates_skipped": duplicates_skipped}
+
+
+def update_snapshot_outcomes(outcome_updates: Dict[str, dict], path: Optional[Path] = None) -> dict:
+    """Merges Warstwa 5 paper-execution results into each EXISTING
+    snapshot's `outcome` sub-object, in place -- never appends a new,
+    independent record for a signal that already has one, and never
+    touches `regime`/`setup`/`orderflow_confirmation`/`risk_decision`
+    (Warstwa 1-4's original decision data is immutable once written).
+    `outcome_updates` maps signal_id -> partial outcome dict to merge.
+    Rewrites the whole file (research-scale JSONL, not a hot path) since
+    JSONL has no native in-place update."""
+    p = path or SNAPSHOT_PATH
+    if not p.exists() or not outcome_updates:
+        return {"updated": 0, "not_found": list(outcome_updates.keys())}
+    lines = p.read_text().splitlines()
+    updated = 0
+    found_ids = set()
+    new_lines = []
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        record = json.loads(line)
+        sid = record.get("snapshot_id")
+        if sid in outcome_updates:
+            record["outcome"] = dict(record.get("outcome") or {}, **outcome_updates[sid])
+            updated += 1
+            found_ids.add(sid)
+        new_lines.append(json.dumps(record, default=str))
+    p.write_text("\n".join(new_lines) + ("\n" if new_lines else ""))
+    not_found = [sid for sid in outcome_updates if sid not in found_ids]
+    return {"updated": updated, "not_found": not_found}
