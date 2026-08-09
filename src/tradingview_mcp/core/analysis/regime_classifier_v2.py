@@ -239,7 +239,10 @@ def classify_from_features(
             is_compressed = struct_1h == "CONTRACTING" or struct_4h == "CONTRACTING"
             is_low_vol = atr_15m is not None and atr_15m <= LOW_VOL_ATR_PCT
             oi_building = oi_1h_pct is not None and oi_1h_pct > 0
-            cvd_flat = cvd_slope is None or abs(cvd_slope) < Decimal("1")
+            # A missing CVD reading is NOT evidence of flatness -- it's an
+            # absence of evidence. Squeeze must be confirmed by an actually
+            # observed near-zero slope, not assumed from missing data.
+            cvd_flat = cvd_slope is not None and abs(cvd_slope) < Decimal("1")
             if is_compressed and is_low_vol and oi_building and cvd_flat:
                 decision = {
                     "regime": "SQUEEZE",
@@ -255,6 +258,7 @@ def classify_from_features(
             # Breakout up/down: expanding structure + edge-of-range position
             # + volume/CVD/OI confirmation. Missing confirmation demotes
             # this to a false-breakout warning, falls through below.
+            attempted_failed_breakout = False
             if decision is None:
                 expanding = struct_1h == "EXPANDING" or struct_4h == "EXPANDING"
                 if expanding and pos_15m is not None:
@@ -277,6 +281,7 @@ def classify_from_features(
                                     "counterarguments": [], "base_confidence": 0.55}
                     elif up_break or down_break:
                         warnings.append("range break detected without volume/CVD/OI confirmation (possible false breakout)")
+                        attempted_failed_breakout = True
 
             # Trend: require 4h AND 1h agreement; 15m only flags a transition.
             if decision is None:
@@ -316,9 +321,31 @@ def classify_from_features(
                 secondary_flags.append("OI_CONTRACTION")
 
             if decision is None:
-                decision = {"regime": "RANGE",
-                            "reasons": ["no directional trend, breakout, or squeeze condition met"],
-                            "counterarguments": [], "base_confidence": 0.45}
+                # RANGE must be earned by positive evidence of consolidation,
+                # not assumed as the leftover bucket when nothing else fired.
+                # "Nothing matched" can just as easily mean "the evidence is
+                # ambiguous/insufficient" -- that's NO_EDGE's job, not RANGE's.
+                non_expanding = struct_4h != "EXPANDING" and struct_1h != "EXPANDING"
+                atr_ref = atr_15m
+                if atr_ref is None and pa_1h.get("available"):
+                    atr_ref = _d(pa_1h.get("atr_pct"))
+                moderate_vol = atr_ref is not None and atr_ref < HIGH_VOL_ATR_PCT
+                bounded_structure = struct_4h in ("RANGE", "UNKNOWN", "CONTRACTING") or \
+                    struct_1h in ("RANGE", "UNKNOWN", "CONTRACTING")
+                # A rejected breakout attempt (price pushed to the range edge
+                # but failed to get volume/CVD/OI confirmation) is itself
+                # positive evidence of range-bound behavior, even though
+                # structure was technically "EXPANDING" going into it.
+                has_range_evidence = attempted_failed_breakout or (non_expanding and (moderate_vol or bounded_structure))
+                if has_range_evidence:
+                    decision = {"regime": "RANGE",
+                                "reasons": ["no directional trend, breakout, or squeeze condition met",
+                                            "structure/ATR consistent with bounded, non-expanding conditions"],
+                                "counterarguments": [], "base_confidence": 0.45}
+                else:
+                    decision = {"regime": "NO_EDGE",
+                                "reasons": ["no positive evidence of trend, breakout, squeeze, or consolidation -- ambiguous market state"],
+                                "counterarguments": [], "base_confidence": 0.35}
 
     confirmations = decision.pop("_confirmations", 0)
     contradictions = decision.pop("_contradictions", len(decision.get("counterarguments", [])))

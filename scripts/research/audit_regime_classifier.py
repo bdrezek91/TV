@@ -254,7 +254,26 @@ async def run_live_snapshot() -> dict:
 # PHASE 3: historical replay (look-ahead guarded)
 # ══════════════════════════════════════════════════════════════════════════
 
-HIST_MAX_AGES = {"candles": 1e12, "trades": 1e12, "orderbook": 1e12, "derivatives": 1e12}
+# Real thresholds, not a disabled gate: `now` in the replay is the
+# simulated cutoff, so age = cutoff - most_recent_available_ts genuinely
+# detects historical collector gaps (a real outage between two 4h decision
+# points), not just "wall clock is far away". 1e12 previously made every
+# historical gap invisible to the classifier's own UNSTABLE_DATA check.
+HIST_MAX_AGES = {
+    "candles": 3600 * 2 + 900,   # ~1 missed 1h candle + buffer
+    "trades": 60 * 15,           # ~15 missed 1-minute buckets
+    "orderbook": 3600 * 6,       # secondary layer -- looser
+    "derivatives": 3600 * 6,
+}
+
+# A single closed bar/bucket is not "history" -- these are the minimum
+# counts required before a replay point is even attempted (see
+# skipped_no_history below). HYPOTHESIS: 20 matches the EMA20 lookback
+# _trend_direction actually needs to say anything meaningful about 1h
+# structure; 10 trade-aggregate rows is a much looser bar since volume
+# features degrade gracefully rather than requiring a fixed window.
+MIN_WARMUP_1H_BARS = 20
+MIN_WARMUP_TRADE_BARS = 10
 
 
 async def _fetch_all(session, symbol: str) -> dict:
@@ -283,18 +302,38 @@ def _history_span(name: str, rows: list, ts_key: str) -> dict:
     return {"source": name, "count": len(rows), "earliest": min(tss).isoformat(), "latest": max(tss).isoformat()}
 
 
+FOUR_HOURS = dt.timedelta(hours=4)
+ONE_HOUR = dt.timedelta(hours=1)
+FIFTEEN_MIN = dt.timedelta(minutes=15)
+ONE_MIN = dt.timedelta(minutes=1)
+
+
+def _closed_as_of(rows: list, ts_key: str, duration: dt.timedelta, cutoff: dt.datetime) -> list:
+    """Rows whose bar/bucket has actually CLOSED by `cutoff` -- i.e. the
+    data was truly knowable at that instant. Filtering by open_time/
+    bucket_start <= cutoff (the previous approach) let the in-progress bar
+    that OPENS exactly at cutoff leak into the window: its close/high/low
+    aren't known yet at that instant, so including it was look-ahead bias.
+    Point-in-time snapshots (orderbook/derivatives) have no "close" and
+    are filtered elsewhere by source_timestamp <= cutoff directly."""
+    return [r for r in rows if r[ts_key] + duration <= cutoff]
+
+
 def _replay_symbol(symbol: str, data: dict, btc_regime_by_ts: dict | None) -> tuple[dict, dict]:
     """Returns (summary, regime_by_ts). LOOK-AHEAD GUARD: every window
-    passed into feature_engine/classify is sliced to timestamps <= cutoff
-    -- nothing after `cutoff` is visible at that step.
+    passed into feature_engine/classify contains only bars/buckets CLOSED
+    by `cutoff` -- nothing still-forming or after `cutoff` is visible.
 
     Points before 1h-candle/trade-aggregate history actually exists (e.g.
     because those aggregations only started running at some later
-    deployment than the bulk-backfilled 4h candles) are SKIPPED, not
-    recorded as UNSTABLE_DATA -- "the infrastructure didn't have this data
-    yet" is not a market condition the classifier is describing, and
-    counting it as one would misrepresent both the UNSTABLE_DATA% and the
-    regime-duration stats."""
+    deployment than the bulk-backfilled 4h candles), or where fewer than
+    MIN_WARMUP_*_BARS closed bars exist, are SKIPPED, not recorded as
+    UNSTABLE_DATA -- "the infrastructure didn't have this data yet" is not
+    a market condition the classifier is describing, and counting it as
+    one would misrepresent both the UNSTABLE_DATA% and the regime-duration
+    stats. A single closed bar is not "history" either -- it can't support
+    EMA20 structure detection, so it's held to the same warm-up bar as a
+    fully-missing source."""
     c4h = data["c4h"]
     if len(c4h) < 25:
         return {"symbol": symbol, "points": 0, "note": "insufficient 4h history for a meaningful replay"}, {}
@@ -305,16 +344,16 @@ def _replay_symbol(symbol: str, data: dict, btc_regime_by_ts: dict | None) -> tu
     skipped_no_history = 0
     for i in range(20, len(c4h)):
         cutoff = c4h[i]["open_time"]
-        w4h = c4h[max(0, i - 100):i + 1]
-        w1h = [c for c in data["c1h"] if c["open_time"] <= cutoff][-100:]
-        w15m = [c for c in data["c15m"] if c["open_time"] <= cutoff][-100:]
-        wtr = [r for r in data["trades"] if r["bucket_start"] <= cutoff][-30:]
+        w4h = _closed_as_of(data["c4h"], "open_time", FOUR_HOURS, cutoff)[-100:]
+        w1h = _closed_as_of(data["c1h"], "open_time", ONE_HOUR, cutoff)[-100:]
+        w15m = _closed_as_of(data["c15m"], "open_time", FIFTEEN_MIN, cutoff)[-100:]
+        wtr = _closed_as_of(data["trades"], "bucket_start", ONE_MIN, cutoff)[-30:]
 
-        if not w1h or not wtr:
+        if len(w1h) < MIN_WARMUP_1H_BARS or len(wtr) < MIN_WARMUP_TRADE_BARS:
             skipped_no_history += 1
             continue
 
-        wliq_series = [r for r in data["liq_1m_series"] if r["bucket_start"] <= cutoff]
+        wliq_series = _closed_as_of(data["liq_1m_series"], "bucket_start", ONE_MIN, cutoff)
         wliq_1m = wliq_series[-1:]
         wliq_5m = wliq_series[-5:]
         wliq_15m = wliq_series[-15:]

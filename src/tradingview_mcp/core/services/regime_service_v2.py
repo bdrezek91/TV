@@ -17,9 +17,9 @@ from tradingview_mcp.core.analysis import feature_engine as fe
 from tradingview_mcp.core.analysis import regime_classifier_v2 as rc
 from tradingview_mcp.core.database.repositories import query_repository as qr
 
-# Historical-replay callers pass their own (much larger) max_ages via
-# classify_symbol_from_windows -- these are for the LIVE path only, where
-# "now" really is wall-clock now.
+# Historical-replay callers pass their own max_ages (see
+# audit_regime_classifier.HIST_MAX_AGES) sized for replay's simulated
+# "now" == cutoff, not wall-clock now -- these are for the LIVE path only.
 LIVE_MAX_AGES = {
     # "candles" tracks the 1h close (see build_features_from_windows) --
     # a fresh 1h candle can legitimately be up to ~60min old, so the
@@ -103,8 +103,17 @@ def build_features_from_windows(
         # the exact same "15m retention is shorter than the replay window"
         # bug one layer up: is_tradeable would still collapse to False on
         # missing 15m even after the classifier's own check was relaxed.
-        "candles": candles_1h[-1]["open_time"] if candles_1h else None,
-        "trades": trade_aggs[-1]["bucket_start"] if trade_aggs else None,
+        #
+        # CLOSE time, not open_time: a candle's open_time marks the start
+        # of its (still-forming) interval, not when its data became known.
+        # Staleness measured against open_time makes a perfectly fresh
+        # candle look up to one whole interval older than it really is
+        # (worst case, right before the next candle closes, the gap between
+        # "now" and open_time approaches ~2 intervals) -- this previously
+        # caused live snapshots to flag fresh 1h candles as stale under a
+        # threshold sized for a single interval.
+        "candles": (candles_1h[-1]["open_time"] + dt.timedelta(hours=1)) if candles_1h else None,
+        "trades": (trade_aggs[-1]["bucket_start"] + dt.timedelta(minutes=1)) if trade_aggs else None,
         "orderbook": ob_latest.get("source_timestamp") if ob_latest else None,
         "derivatives": deriv_latest.get("source_timestamp") if deriv_latest else None,
     }
