@@ -250,12 +250,6 @@ async def run_live_snapshot() -> dict:
     }
 
 
-try:
-    report["live_snapshot"] = asyncio.run(run_live_snapshot())
-except Exception:
-    report["live_snapshot"] = {"error": traceback.format_exc()}
-
-
 # ══════════════════════════════════════════════════════════════════════════
 # PHASE 3: historical replay (look-ahead guarded)
 # ══════════════════════════════════════════════════════════════════════════
@@ -397,10 +391,24 @@ async def run_historical_backtest() -> dict:
     return summaries
 
 
-try:
-    report["historical_backtest"] = asyncio.run(run_historical_backtest())
-except Exception:
-    report["historical_backtest"] = {"error": traceback.format_exc()}
+async def _run_phases_2_and_3() -> None:
+    # Both phases share the process-wide lazy-singleton async engine from
+    # core/database/session.py. Running them under two separate top-level
+    # asyncio.run() calls binds that singleton to the first call's event
+    # loop, then crashes cross-loop on the second (RuntimeError: ... attached
+    # to a different loop) -- one shared loop for both phases avoids that.
+    try:
+        report["live_snapshot"] = await run_live_snapshot()
+    except Exception:
+        report["live_snapshot"] = {"error": traceback.format_exc()}
+
+    try:
+        report["historical_backtest"] = await run_historical_backtest()
+    except Exception:
+        report["historical_backtest"] = {"error": traceback.format_exc()}
+
+
+asyncio.run(_run_phases_2_and_3())
 
 
 # ══════════════════════════════════════════════════════════════════════════

@@ -100,7 +100,16 @@ def build_features_from_windows(
     }
     data_quality = fe.assess_data_quality(
         source_timestamps, max_ages,
-        orderbook_consistent=bool(ob_latest and ob_latest.get("is_consistent", False)),
+        # Order book is an explicitly SECONDARY/supporting layer per the
+        # roadmap, not a primary basis for classification -- it must not be
+        # a *required* source. Its retention window is far shorter than the
+        # candle history used in historical replay, so treating it as
+        # required forced every historical point into UNSTABLE_DATA. Only
+        # candles and trades gate is_tradeable; orderbook absence still
+        # shows up in missing_fields / the data_quality_score, just doesn't
+        # collapse is_tradeable on its own.
+        required_sources=("candles", "trades"),
+        orderbook_consistent=(ob_latest.get("is_consistent", True) if ob_latest else True),
         now=now,
     )
     return {"tf": tf, "volume": volume, "orderbook": orderbook, "futures": futures,
