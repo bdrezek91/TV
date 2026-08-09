@@ -98,6 +98,14 @@ from tradingview_mcp.core.services.trading_query_service import (
     strategy_performance as _strategy_performance,
     trading_system_health as _trading_system_health,
 )
+from tradingview_mcp.core.services.research_query_service import (
+    advance_paper_trading as _advance_paper_trading,
+    market_scan as _research_market_scan,
+    paper_account_status as _research_paper_account_status,
+    recent_signals as _research_recent_signals,
+    regime_snapshot as _research_regime_snapshot,
+    trading_chain_snapshot as _research_trading_chain_snapshot,
+)
 
 try:
     import tradingview_screener  # noqa: F401
@@ -1211,6 +1219,133 @@ async def run_futures_opportunity_scan(minimum_score: int = 75, maximum_results:
         return await _run_futures_opportunity_scan(minimum_score=minimum_score, maximum_results=maximum_results)
     except Exception as e:
         return exception_to_envelope(e, context="run_futures_opportunity_scan")
+
+
+# ── Research pipeline (Warstwa 1-5) ─────────────────────────────────────────
+#
+# Regime -> setup -> order-flow confirmation -> risk decision -> paper
+# execution -- a SEPARATE, newer research pipeline from Block 3 above (own
+# regime classifier, own paper broker with its own local JSON state under
+# artifacts/research/, not the DB-backed PaperPosition/PaperEquitySnapshot
+# tables Block 3 uses). Status is IMPLEMENTATION_COMPLETE_VALIDATION_PENDING
+# -- these tools describe and simulate, they never place a real order.
+# `advance_paper_trading` is the only one that writes anything, and only to
+# this project's own local JSON paper-trading ledger.
+
+@mcp.tool(annotations=ToolAnnotations(title="Research Regime Snapshot", readOnlyHint=True, destructiveHint=False, openWorldHint=False))
+async def research_regime_snapshot(symbol: str) -> dict:
+    """Live market-regime classification (Warstwa 1) for one symbol:
+    primary regime (TREND_UP/DOWN, RANGE, BREAKOUT_UP/DOWN, SQUEEZE,
+    HIGH_VOLATILITY, PANIC_LIQUIDATION_LONGS/SHORTS, LOW_LIQUIDITY,
+    UNSTABLE_DATA, or NO_EDGE), confidence, reasons, counterarguments, and
+    data quality. Does not predict direction and never places a trade.
+
+    Args:
+        symbol: Bybit symbol, e.g. BTCUSDT.
+    """
+    if not symbol or not symbol.strip():
+        return make_error(ErrorCode.INVALID_PARAMETER, "symbol is required")
+    try:
+        return await _research_regime_snapshot(symbol.strip())
+    except Exception as e:
+        return exception_to_envelope(e, context="research_regime_snapshot")
+
+
+@mcp.tool(annotations=ToolAnnotations(title="Research Trading Chain Snapshot", readOnlyHint=True, destructiveHint=False, openWorldHint=False))
+async def research_trading_chain_snapshot(symbol: str, btc_regime: str = "") -> dict:
+    """Full live chain for one symbol: regime (Warstwa 1) -> candidate
+    setups (Warstwa 2: trend_pullback/breakout/mean_reversion/
+    liquidation_reversal, each LONG/SHORT/NO_SETUP) -> order-flow
+    confirmation (Warstwa 3: CONFIRMED/WEAK_CONFIRMATION/NEUTRAL/
+    CONTRADICTED/INSUFFICIENT_DATA) -> risk decision (Warstwa 4: APPROVED/
+    APPROVED_REDUCED_SIZE/WAIT_FOR_CONFIRMATION/REJECTED, with position
+    size/SL/TP/reward:risk). Read-only: evaluates risk against an empty
+    portfolio, ignoring persisted paper-trading exposure -- use
+    `research_paper_account_status` for the real, stateful book.
+
+    Args:
+        symbol: Bybit symbol, e.g. BTCUSDT.
+        btc_regime: optional BTC regime string for context on an altcoin
+            call (e.g. "TREND_UP"); leave blank to skip that check.
+    """
+    if not symbol or not symbol.strip():
+        return make_error(ErrorCode.INVALID_PARAMETER, "symbol is required")
+    try:
+        return await _research_trading_chain_snapshot(symbol.strip(), btc_regime.strip() or None)
+    except Exception as e:
+        return exception_to_envelope(e, context="research_trading_chain_snapshot")
+
+
+@mcp.tool(annotations=ToolAnnotations(title="Research Market Scan", readOnlyHint=True, destructiveHint=False, openWorldHint=False))
+async def research_market_scan(symbols: str = "") -> dict:
+    """Regime -> setup -> confirmation -> risk chain across all 15
+    tracked symbols (or a comma-separated subset). Compact per-symbol
+    summary -- use `research_trading_chain_snapshot` for one symbol's full
+    detail. Read-only, empty-portfolio risk evaluation (see
+    research_trading_chain_snapshot's caveat).
+
+    Args:
+        symbols: optional comma-separated Bybit symbols, e.g.
+            "BTCUSDT,ETHUSDT"; leave blank to scan every tracked symbol.
+    """
+    parsed = [s.strip().upper() for s in symbols.split(",") if s.strip()] or None
+    try:
+        return await _research_market_scan(parsed)
+    except Exception as e:
+        return exception_to_envelope(e, context="research_market_scan")
+
+
+@mcp.tool(annotations=ToolAnnotations(title="Research Paper Account Status", readOnlyHint=True, destructiveHint=False, openWorldHint=False))
+async def research_paper_account_status() -> dict:
+    """Current PERSISTED Warstwa 5 paper-trading account: initial
+    capital, balance, equity, realized/unrealized PnL, margin used/
+    available, open positions, active (PENDING_ENTRY) orders, daily/
+    weekly PnL, max drawdown. Read-only -- paper trading only, no real
+    funds or orders exist anywhere in this pipeline."""
+    try:
+        return await _research_paper_account_status()
+    except Exception as e:
+        return exception_to_envelope(e, context="research_paper_account_status")
+
+
+@mcp.tool(annotations=ToolAnnotations(title="Advance Paper Trading", readOnlyHint=False, destructiveHint=False, openWorldHint=False))
+async def research_advance_paper_trading() -> dict:
+    """Runs the full live chain for every tracked symbol and advances
+    Warstwa 5's paper-trading simulation: creates new simulated orders for
+    APPROVED/APPROVED_REDUCED_SIZE risk decisions (deduplicated by
+    signal_id -- never twice for the same signal), advances existing
+    PENDING/OPEN orders using already-persisted candle history (fills,
+    SL/TP, expiry, cancellation), and updates the corresponding signal
+    snapshots' outcome in place. NEVER sends a real order to any exchange
+    -- this only mutates this project's own local JSON paper-trading
+    ledger under artifacts/research/. WAIT_FOR_CONFIRMATION and REJECTED
+    decisions never open a position."""
+    try:
+        return await _advance_paper_trading()
+    except Exception as e:
+        return exception_to_envelope(e, context="research_advance_paper_trading")
+
+
+@mcp.tool(annotations=ToolAnnotations(title="Research Recent Signals", readOnlyHint=True, destructiveHint=False, openWorldHint=False))
+async def research_recent_signals(symbol: str = "", limit: int = 20) -> dict:
+    """Most recently persisted Warstwa 1-5 signal snapshots (newest
+    first), optionally filtered by symbol. Each includes the full regime/
+    setup/order-flow-confirmation/risk_decision chain and, once
+    Warstwa 5 has advanced it, the outcome (entry touched, fill price,
+    TP/SL times+prices, fees, funding, slippage, realized PnL, R-multiple,
+    MFE, MAE, final status) -- never fabricated here, only what
+    `research_advance_paper_trading` has actually recorded so far.
+
+    Args:
+        symbol: optional Bybit symbol filter, e.g. "BTCUSDT".
+        limit: maximum signals to return (default 20).
+    """
+    if limit < 1:
+        return make_error(ErrorCode.INVALID_PARAMETER, "limit must be >= 1")
+    try:
+        return await _research_recent_signals(symbol.strip() or None, limit)
+    except Exception as e:
+        return exception_to_envelope(e, context="research_recent_signals")
 
 
 # ---------------------------------------------------------------------------
