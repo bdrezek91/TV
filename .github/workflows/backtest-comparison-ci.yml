@@ -39,6 +39,7 @@ jobs:
             tests/unit/trading/test_comparison_history_v1.py \
             tests/unit/trading/test_comparison_history_index_v1.py \
             tests/unit/trading/test_comparison_diagnostics_v1.py \
+            tests/unit/trading/test_comparison_funnel_v1.py \
             tests/unit/trading/test_comparison_report_v1.py \
             tests/unit/trading/test_w5_comparison_diagnostics_v1.py \
             tests/unit/trading/test_extended_history_v1.py \
