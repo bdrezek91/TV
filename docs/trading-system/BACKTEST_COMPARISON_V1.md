@@ -6,7 +6,7 @@ This research track compares the old Block 1–3 TradingView+Bybit engine with R
 
 ## Validation status
 
-GitHub Actions `Backtest Comparison CI` passes **49/49 tests** and validates all four research CLIs via `--help` on Python 3.11.
+GitHub Actions `Backtest Comparison CI` passes **52/52 tests** and validates all five research CLIs via `--help` on Python 3.11.
 
 This proves code-level invariants only. It is **not** a trading-performance result. No strategy winner is declared until the scripts are run against the actual VPS Postgres/cache data.
 
@@ -114,6 +114,12 @@ For every exact symbol/decision timestamp the runner records `BOTH_SIGNAL_SAME_D
 
 Matched setup families are legacy `trend_pullback` ↔ Research V2 `trend_pullback`, and legacy `breakout_retest` ↔ Research V2 `breakout`. Research-only `mean_reversion` and `liquidation_reversal` are never forced into fake legacy equivalents.
 
+## Automatic Markdown report
+
+`scripts/research/render_backtest_comparison_report_v1.py` reads exact/extended JSON and writes `comparison_report.md`.
+
+The renderer is fail-closed: smoke/degraded runs cannot be promoted to a strategy winner. Until a fuller risk-adjusted contract exists, it reports `NO_STATISTICALLY_MEANINGFUL_WINNER` rather than selecting on a single attractive metric.
+
 ## VPS commands — exact preflight
 
 After checking out/building this research branch on the VPS:
@@ -122,6 +128,7 @@ After checking out/building this research branch on the VPS:
 python scripts/research/backtest_comparison_v1.py coverage
 python scripts/research/backtest_comparison_v1.py audit-tv
 python scripts/research/backtest_comparison_guarded_v1.py --auto-clamp --symbols BTCUSDT,ETHUSDT,SOLUSDT
+python scripts/research/render_backtest_comparison_report_v1.py
 ```
 
 The guarded runner writes only under `/app/artifacts/research/backtest_comparison/` and cannot declare a final winner from a small local smoke sample.
@@ -133,6 +140,7 @@ Safe five-symbol 30-day backfill:
 ```bash
 python scripts/research/backfill_extended_history_v1.py --days 30
 python scripts/research/backtest_comparison_extended_v1.py
+python scripts/research/render_backtest_comparison_report_v1.py
 ```
 
 Later, only if the smoke run is clean:
@@ -140,6 +148,7 @@ Later, only if the smoke run is clean:
 ```bash
 python scripts/research/backfill_extended_history_v1.py --days 90 --all-symbols
 python scripts/research/backtest_comparison_extended_v1.py
+python scripts/research/render_backtest_comparison_report_v1.py
 ```
 
 Do not interpret Tier B as an exact legacy comparison until real historical orderbook and liquidation adapters are validated.
