@@ -112,9 +112,9 @@ benchmark requires all of:
 Missing data is never treated as neutral confirmation or silently omitted from
 the overlap calculation.
 
-## Local Postgres smoke test
+## Local Postgres preflight/smoke
 
-The read-only smoke runner is:
+The current read-only CLI can be used for preflight:
 
 ```bash
 python scripts/research/backtest_comparison_v1.py coverage
@@ -130,7 +130,9 @@ Outputs are written only under:
 `/app/artifacts/research/backtest_comparison/`
 
 The smoke result is always tagged `SMOKE_LOCAL_OVERLAP` and is not permitted to
-produce a final statistical winner.
+produce a final statistical winner. Until the strict coverage validator is
+wired directly into the smoke command, run `coverage` first and treat `smoke`
+as a mechanical preflight, not a performance conclusion.
 
 ## Before final 30/90-day benchmark
 
