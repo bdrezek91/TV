@@ -6,6 +6,10 @@ validated historical orderbook/liquidation adapters are not yet available, this
 runner explicitly forbids an exact legacy comparison and labels every result
 DEGRADED. It is useful for a longer Research V2 / classic-TA shadow hypothesis,
 not as the final TV-vs-bot verdict.
+
+The runner also records an observational W1->W4 funnel. This is deliberately
+separate from production policy: it explains where candidates disappear but
+never changes W1/W2/W3/W4/W5 decisions.
 """
 from __future__ import annotations
 
@@ -20,12 +24,18 @@ from pathlib import Path
 from typing import Any
 
 from tradingview_mcp.core.backtest.comparison_execution_v1 import simulate_neutral_signal
+from tradingview_mcp.core.backtest.comparison_funnel_v1 import ResearchFunnelDiagnostics
 from tradingview_mcp.core.backtest.comparison_history_index_v1 import (
     HistoricalWindowIndex,
     build_research_v2_chain_indexed,
 )
 from tradingview_mcp.core.backtest.comparison_history_v1 import neutral_signals_from_research
-from tradingview_mcp.core.backtest.comparison_v1 import TradeObservation, decision_times, summarize_observations
+from tradingview_mcp.core.backtest.comparison_v1 import (
+    DEFAULT_SCAN_HOURS,
+    TradeObservation,
+    decision_times,
+    summarize_observations,
+)
 from tradingview_mcp.core.backtest.extended_history_loader_v1 import load_extended_bundle
 from tradingview_mcp.core.backtest.extended_history_v1 import DEFAULT_CACHE_ROOT, write_json_cache
 from tradingview_mcp.core.backtest.tv_shadow_v1 import evaluate_tv_shadow
@@ -34,6 +44,7 @@ from tradingview_mcp.core.backtest.tv_shadow_v1 import evaluate_tv_shadow
 UTC = dt.timezone.utc
 MIN_FUTURE_EXECUTION = dt.timedelta(hours=12)
 OUT_NAME = "extended_research_v2_tv_shadow_summary.json"
+FUNNEL_OUT_NAME = "extended_research_v2_funnel_diagnostics.json"
 
 
 def _dt(v: str) -> dt.datetime:
@@ -67,17 +78,42 @@ def _summary_by_setup(rows: list[TradeObservation]) -> dict[str, dict[str, Any]]
     return {name: summarize_observations(items) for name, items in grouped.items()}
 
 
+def _summary_by_symbol(rows: list[TradeObservation]) -> dict[str, dict[str, Any]]:
+    grouped: dict[str, list[TradeObservation]] = defaultdict(list)
+    for row in rows:
+        grouped[row.symbol].append(row)
+    return {name: summarize_observations(items) for name, items in grouped.items()}
+
+
 def _counterfactual_summary(pairs: list[tuple[str, TradeObservation]]) -> dict[str, Any]:
     baseline = [obs for _, obs in pairs]
     drop_contradicted = [obs for status, obs in pairs if status != "CONTRADICTED"]
     confirmed_or_weak = [obs for status, obs in pairs if status in {"CONFIRMED", "WEAK_CONFIRMATION"}]
-    # These policies are fixed in code before seeing outcomes. They do not tune
-    # thresholds or modify the historical signals/execution.
     return {
         "BASELINE_ALL_RESEARCH_V2": summarize_observations(baseline),
         "HYPOTHETICAL_DROP_TV_CONTRADICTED": summarize_observations(drop_contradicted),
         "HYPOTHETICAL_KEEP_TV_CONFIRMED_OR_WEAK": summarize_observations(confirmed_or_weak),
         "note": "counterfactual fixed filters only; TV shadow had zero effect on original W4/W5 decisions",
+    }
+
+
+def _confirmation_policy_summary(pairs: list[tuple[str, TradeObservation]]) -> dict[str, Any]:
+    """Outcome sensitivity over signals that native W4 actually approved.
+
+    This does not resurrect W4-rejected setups and therefore cannot introduce a
+    hindsight candidate. It only asks what the already-approved trade set would
+    have looked like under stricter W3 acceptance policies.
+    """
+    current = [obs for _, obs in pairs]
+    strict = [obs for status, obs in pairs if status == "CONFIRMED"]
+    balanced = [obs for status, obs in pairs if status in {"CONFIRMED", "WEAK_CONFIRMATION"}]
+    return {
+        "CURRENT_NATIVE_W4": summarize_observations(current),
+        "STRICT_CONFIRMED_ONLY": summarize_observations(strict),
+        "BALANCED_CONFIRMED_OR_WEAK": summarize_observations(balanced),
+        "note": (
+            "diagnostic sensitivity only; these filters are applied after historical native-W4 approval and do not modify production policy"
+        ),
     }
 
 
@@ -130,8 +166,6 @@ async def run(args) -> dict[str, Any]:
     if missing:
         return {"status": "MISSING_SUCCESSFUL_CACHE", "symbols": missing}
 
-    # BTC is evaluated internally first when available so altcoin W1/W3 gets
-    # the same BTC-regime context as the live research pipeline.
     context_symbols = list(requested)
     if "BTCUSDT" not in context_symbols and "BTCUSDT" in successful:
         context_symbols = ["BTCUSDT"] + context_symbols
@@ -161,6 +195,7 @@ async def run(args) -> dict[str, Any]:
     cutoffs = decision_times(evaluation_start, safe_end)
     if not cutoffs:
         return {"status": "NO_DECISION_TIMES", "start": evaluation_start, "end": safe_end}
+    full_window_cutoffs = decision_times(evaluation_start, evaluation_end)
 
     indexes = {s: HistoricalWindowIndex(b.inputs) for s, b in bundles.items()}
     candle_lists = {s: list(b.inputs.candles_1m) for s, b in bundles.items()}
@@ -169,10 +204,12 @@ async def run(args) -> dict[str, Any]:
 
     observations: list[TradeObservation] = []
     shadow_pairs: list[tuple[str, TradeObservation]] = []
+    confirmation_pairs: list[tuple[str, TradeObservation]] = []
     by_shadow: dict[str, list[TradeObservation]] = defaultdict(list)
     shadow_counts = Counter()
     decisions: list[dict[str, Any]] = []
     trade_rows: list[dict[str, Any]] = []
+    funnel = ResearchFunnelDiagnostics()
 
     for cutoff in cutoffs:
         btc_regime = None
@@ -192,14 +229,34 @@ async def run(args) -> dict[str, Any]:
 
         for symbol in requested:
             chain = chains[symbol]
+            funnel.record(chain)
             signals = neutral_signals_from_research(chain, approved_only=True)
             signal_summaries = []
+            candidate_summaries = []
+            for setup_type, setup in (chain.get("setups") or {}).items():
+                if setup.get("direction") not in {"LONG", "SHORT"}:
+                    continue
+                confirmation = (chain.get("confirmations") or {}).get(setup_type) or {}
+                risk = (chain.get("risk_decisions") or {}).get(setup_type) or {}
+                candidate_summaries.append({
+                    "setup": setup_type,
+                    "direction": setup.get("direction"),
+                    "confidence": setup.get("confidence"),
+                    "w3": confirmation.get("status"),
+                    "w3_net_independent_score": confirmation.get("net_independent_score"),
+                    "w3_available_dimensions": confirmation.get("available_dimensions"),
+                    "w3_missing_sources": confirmation.get("missing_sources"),
+                    "w4": risk.get("decision"),
+                    "w4_rejection_reasons": risk.get("rejection_reasons"),
+                    "w4_reasons": risk.get("reasons"),
+                })
             for signal in signals:
                 shadow = evaluate_tv_shadow(signal, chain["_windows"])
                 future = _future_candles(candle_lists[symbol], candle_times[symbol], cutoff)
                 result = simulate_neutral_signal(signal, future)
                 observations.append(result.observation)
                 shadow_pairs.append((shadow.status, result.observation))
+                confirmation_pairs.append((str(signal.metadata.get("confirmation_status")), result.observation))
                 by_shadow[shadow.status].append(result.observation)
                 shadow_counts[shadow.status] += 1
                 trade_rows.append(_trade_row(signal, shadow, result, chain))
@@ -215,7 +272,9 @@ async def run(args) -> dict[str, Any]:
                 "cutoff": cutoff,
                 "symbol": symbol,
                 "regime": chain["regime"].get("primary_regime"),
+                "regime_confidence": chain["regime"].get("confidence"),
                 "data_quality": chain["data_quality"],
+                "w2_candidates": candidate_summaries,
                 "signals": signal_summaries,
             })
 
@@ -223,6 +282,18 @@ async def run(args) -> dict[str, Any]:
         status: summarize_observations(rows) for status, rows in sorted(by_shadow.items())
     }
     capability_matrix = {s: dict(b.capabilities) for s, b in bundles.items()}
+    funnel_payload = funnel.to_dict()
+    funnel_payload["decision_clock_audit"] = {
+        "configured_local_hours_europe_warsaw": list(DEFAULT_SCAN_HOURS),
+        "nominal_scans_per_full_day": len(DEFAULT_SCAN_HOURS),
+        "full_evaluation_window_cutoffs_per_symbol": len(full_window_cutoffs),
+        "safe_cutoffs_per_symbol_after_12h_execution_reserve": len(cutoffs),
+        "cutoffs_removed_by_execution_reserve": len(full_window_cutoffs) - len(cutoffs),
+        "requested_symbols": len(requested),
+        "safe_total_symbol_decision_points": len(cutoffs) * len(requested),
+        "observed_funnel_decision_points": funnel_payload.get("decision_points_total"),
+    }
+
     payload = {
         "research_contract": "BACKTEST_COMPARISON_V1",
         "run_kind": "EXTENDED_DEGRADED_RESEARCH_V2_TV_SHADOW",
@@ -238,6 +309,9 @@ async def run(args) -> dict[str, Any]:
         "capabilities": capability_matrix,
         "baseline_research_v2": summarize_observations(observations),
         "baseline_by_setup": _summary_by_setup(observations),
+        "baseline_by_symbol": _summary_by_symbol(observations),
+        "confirmation_policy_outcomes_on_native_w4_approved_set": _confirmation_policy_summary(confirmation_pairs),
+        "research_v2_funnel": funnel_payload,
         "tv_shadow_counts": dict(shadow_counts),
         "tv_shadow_outcomes": by_status_summary,
         "predeclared_counterfactual_filters": _counterfactual_summary(shadow_pairs),
@@ -259,6 +333,7 @@ async def run(args) -> dict[str, Any]:
 
     out_dir = cache_root.parent if cache_root.name == "cache" else cache_root
     write_json_cache(out_dir / OUT_NAME, payload)
+    write_json_cache(out_dir / FUNNEL_OUT_NAME, funnel_payload)
     with (out_dir / "extended_research_v2_tv_shadow_decisions.jsonl").open("w", encoding="utf-8") as fh:
         for row in decisions:
             fh.write(json.dumps(_jsonable(row)) + "\n")
