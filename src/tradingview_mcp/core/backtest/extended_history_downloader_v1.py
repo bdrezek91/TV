@@ -6,12 +6,12 @@ endpoint.
 
 Pagination follows the official V5 contracts:
 - kline/mark/index: page backwards with ``end``;
-- funding: page backwards with ``endTime`` (passing startTime alone is invalid);
+- funding: page backwards with ``endTime``;
 - open-interest and account-ratio: follow ``nextPageCursor``.
 
-Public trade archives are downloaded day-by-day, immediately aggregated through
-the live TradeAggregator into 1m buckets, and raw .csv.gz files are removed by
-default after successful aggregation.
+Public trade archives are streamed day-by-day directly to disk, immediately
+aggregated through the live TradeAggregator into 1m buckets, and raw .csv.gz
+files are removed by default after successful aggregation.
 """
 from __future__ import annotations
 
@@ -45,6 +45,10 @@ from tradingview_mcp.core.backtest.extended_history_v1 import (
 
 JsonGetter = Callable[[str, Mapping[str, Any]], Awaitable[dict[str, Any]]]
 BytesGetter = Callable[[str], Awaitable[bytes]]
+
+
+class ArchiveNotFoundError(FileNotFoundError):
+    """A daily public-trade archive does not exist (HTTP 404)."""
 
 
 @dataclass(frozen=True)
@@ -149,18 +153,38 @@ class OfficialBybitDownloader:
                 await asyncio.sleep(delay)
         raise RuntimeError(f"Bybit GET failed after retries: {path}: {last!r}")
 
-    async def _bytes(self, url: str) -> bytes:
+    async def _download_archive_to_file(self, url: str, destination: Path) -> None:
+        """Stream archive to a temp file; never retain a full daily dump in RAM."""
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        tmp = destination.with_suffix(destination.suffix + ".tmp")
         if self._injected_bytes_getter is not None:
-            return await self._injected_bytes_getter(url)
+            try:
+                tmp.write_bytes(await self._injected_bytes_getter(url))
+                tmp.replace(destination)
+                return
+            except FileNotFoundError as exc:
+                tmp.unlink(missing_ok=True)
+                raise ArchiveNotFoundError(url) from exc
+
         if self._client is None:
             raise RuntimeError("downloader must be used as async context manager")
         last: Exception | None = None
         for attempt in range(self.config.max_retries):
             try:
-                response = await self._client.get(url)
-                response.raise_for_status()
-                return response.content
+                async with self._client.stream("GET", url) as response:
+                    if response.status_code == 404:
+                        raise ArchiveNotFoundError(url)
+                    response.raise_for_status()
+                    with tmp.open("wb") as fh:
+                        async for chunk in response.aiter_bytes():
+                            fh.write(chunk)
+                tmp.replace(destination)
+                return
+            except ArchiveNotFoundError:
+                tmp.unlink(missing_ok=True)
+                raise
             except Exception as exc:  # noqa: BLE001
+                tmp.unlink(missing_ok=True)
                 last = exc
                 if attempt + 1 >= self.config.max_retries:
                     break
@@ -272,8 +296,6 @@ class OfficialBybitDownloader:
         )
 
     async def funding(self, symbol: str, start: dt.datetime, end: dt.datetime) -> list[dict[str, Any]]:
-        # Funding history explicitly permits endTime-only pagination; keep
-        # startTime too for a bounded historical window.
         return await self._time_paged(
             "/v5/market/funding/history", symbol=symbol, start=start, end=end,
             limit=200, parser=parse_funding_rows, extra={},
@@ -320,18 +342,16 @@ class OfficialBybitDownloader:
             raw_path = daily_root / f"{day.isoformat()}.csv.gz"
             try:
                 if not raw_path.exists():
-                    raw_path.write_bytes(await self._bytes(url))
+                    await self._download_archive_to_file(url, raw_path)
                 rows = aggregate_trade_archive_1m(raw_path, symbol)
                 rows = [r for r in rows if start <= r["bucket_start"] <= end]
                 write_json_cache(day_json, {"source_url": url, "rows": rows})
                 combined.extend(rows)
                 if not self.config.keep_raw_trades:
                     raw_path.unlink(missing_ok=True)
-            except httpx.HTTPStatusError as exc:
-                if exc.response.status_code == 404:
-                    write_json_cache(day_json, {"source_url": url, "rows": [], "missing": True})
-                    continue
-                raise
+            except ArchiveNotFoundError:
+                write_json_cache(day_json, {"source_url": url, "rows": [], "missing": True})
+                raw_path.unlink(missing_ok=True)
             await self._pause()
         dedup = {r["bucket_start"]: r for r in combined}
         return [dedup[k] for k in sorted(dedup)]
