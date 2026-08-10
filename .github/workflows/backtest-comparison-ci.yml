@@ -1,0 +1,34 @@
+name: Backtest Comparison CI
+
+on:
+  pull_request:
+    branches: [trading-system-blocks-1-3]
+    paths:
+      - 'src/tradingview_mcp/core/backtest/**'
+      - 'scripts/research/backtest_comparison_v1.py'
+      - 'tests/unit/trading/test_*comparison*v1.py'
+      - '.github/workflows/backtest-comparison-ci.yml'
+  workflow_dispatch:
+
+jobs:
+  comparison-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - name: Install package and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+          python -m pip install pytest pytest-asyncio
+      - name: Run comparison and TradingView regression tests
+        run: |
+          pytest -q \
+            tests/unit/trading/test_backtest_comparison_v1.py \
+            tests/unit/trading/test_comparison_execution_v1.py \
+            tests/unit/trading/test_comparison_history_v1.py \
+            tests/unit/trading/test_tradingview_context.py
