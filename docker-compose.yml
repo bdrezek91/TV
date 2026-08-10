@@ -66,6 +66,8 @@ services:
     environment:
       - PORT=8000
       - HOST=0.0.0.0
+    volumes:
+      - trading-research-artifacts:/app/artifacts
     logging: *default-logging
     networks:
       - trading-net
@@ -237,3 +239,4 @@ volumes:
   trading-postgres-data:
   trading-prometheus-data:
   trading-grafana-data:
+  trading-research-artifacts:
