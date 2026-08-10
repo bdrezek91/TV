@@ -191,7 +191,7 @@ async def advance_paper_trading() -> Dict[str, Any]:
                     regime_ts = (r["data_quality"].get("source_timestamps") or {}).get("candles")
                     signal_id = snap.make_signal_id(sym, setup_type, s["direction"], r["as_of"], regime_ts)
                     order = await pb.process_signal(
-                        session, sym, signal_id, s, decision, r["as_of"], state, paper_config,
+                        session, sym, signal_id, s, decision, confirmation["status"], r["as_of"], state, paper_config,
                         regime_changed=regime_changed,
                         regime_change_detail=f"{last_regime} -> {r['regime']['primary_regime']}" if regime_changed else "",
                     )

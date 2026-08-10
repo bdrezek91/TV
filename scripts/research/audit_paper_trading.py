@@ -183,17 +183,17 @@ async def run_async_synthetic_tests() -> dict:
     rejected = {"decision": "REJECTED", "stop_loss": 95, "targets": [110, 120, 130], "position_size": 10}
 
     state = pb.fresh_state(_CFG)
-    r = await pb.process_signal(None, "ETHUSDT", "sigA", setup, wait, _NOW, state, _CFG)
+    r = await pb.process_signal(None, "ETHUSDT", "sigA", setup, wait, "CONFIRMED", _NOW, state, _CFG)
     results["14_wait_for_confirmation_never_opens"] = {"pass": r is None and "sigA" not in state["orders"],
                                                         "expected": "no order created", "got": f"order={r} orders={list(state['orders'])}"}
 
     state = pb.fresh_state(_CFG)
-    r = await pb.process_signal(None, "ETHUSDT", "sigB", setup, rejected, _NOW, state, _CFG)
+    r = await pb.process_signal(None, "ETHUSDT", "sigB", setup, rejected, "CONFIRMED", _NOW, state, _CFG)
     results["15_rejected_never_opens"] = {"pass": r is None and "sigB" not in state["orders"],
                                            "expected": "no order created", "got": f"order={r} orders={list(state['orders'])}"}
 
     state = pb.fresh_state(_CFG)
-    await pb.process_signal(None, "ETHUSDT", "sigC", setup, approved, _NOW, state, _CFG)
+    await pb.process_signal(None, "ETHUSDT", "sigC", setup, approved, "WEAK_CONFIRMATION", _NOW, state, _CFG)
     with tempfile.TemporaryDirectory() as d:
         path = Path(d) / "state.json"
         pb.save_state(state, path=path)
@@ -202,10 +202,20 @@ async def run_async_synthetic_tests() -> dict:
             "pass": state2["orders"]["sigC"]["status"] == "PENDING_ENTRY" and state2["orders"]["sigC"]["risk_position_size"] == Decimal("10"),
             "expected": "state survives JSON round-trip with correct types", "got": str(state2["orders"]["sigC"]["status"]),
         }
-        r2 = await pb.process_signal(None, "ETHUSDT", "sigC", setup, approved, _NOW, state2, _CFG)
+        r2 = await pb.process_signal(None, "ETHUSDT", "sigC", setup, approved, "WEAK_CONFIRMATION", _NOW, state2, _CFG)
         results["13_signal_id_deduplication"] = {
             "pass": len(state2["orders"]) == 1 and r2["signal_id"] == "sigC",
             "expected": "no duplicate order for the same signal_id", "got": f"orders_count={len(state2['orders'])}",
+        }
+        # Same order, but THIS tick's order flow has reversed to
+        # CONTRADICTED -- must cancel the still-pending order rather than
+        # leave it sitting on a thesis that no longer holds (the exact gap
+        # a live LTCUSDT/SUIUSDT signal pair exposed: CVD/confirmation
+        # flipped within minutes of creation while the order sat untouched).
+        r3 = await pb.process_signal(None, "ETHUSDT", "sigC", setup, approved, "CONTRADICTED", _NOW + dt.timedelta(minutes=12), state2, _CFG)
+        results["19_pending_order_cancelled_on_thesis_reversal"] = {
+            "pass": r3["status"] == "CANCELLED" and "order flow reversed" in r3["state_history"][-1]["detail"],
+            "expected": "CANCELLED once fresh confirmation flips to CONTRADICTED", "got": r3["status"],
         }
 
     state = pb.fresh_state(_CFG)
@@ -282,7 +292,8 @@ async def run_live_pipeline() -> dict:
                         continue
                     regime_ts = (r["data_quality"].get("source_timestamps") or {}).get("candles")
                     signal_id = snap.make_signal_id(sym, setup_type, s["direction"], r["as_of"], regime_ts)
-                    order = await pb.process_signal(session, sym, signal_id, s, decision, r["as_of"], state, paper_config,
+                    order = await pb.process_signal(session, sym, signal_id, s, decision, confirmation["status"],
+                                                      r["as_of"], state, paper_config,
                                                       regime_changed=regime_changed,
                                                       regime_change_detail=f"{last_regime} -> {r['regime']['primary_regime']}" if regime_changed else "")
                     if order is not None:

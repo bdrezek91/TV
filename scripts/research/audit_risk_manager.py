@@ -87,21 +87,32 @@ def run_synthetic_tests() -> dict:
     def rec(name, ok, expected, got):
         results[name] = {"pass": ok, "expected": expected, "got": got}
 
+    # Sized off the WORST-CASE zone edge (entry_zone high=101 for a LONG),
+    # not the midpoint (100) -- risk_amount 50 / (101-95)=6 -> 8.333333,
+    # not the old midpoint-based 10. See risk_manager_v2's worst_case_entry
+    # comment for why: a fill can land anywhere in entry_zone, and sizing
+    # off the midpoint understated real risk by up to ~60% on a live
+    # signal pair that prompted this fix.
     r = rm.evaluate_risk("ETHUSDT", _NOW, _REGIME_OK, _setup("LONG"), _confirmation("CONFIRMED"), _OB_OK, _DQ_GOOD, _EMPTY_PORTFOLIO)
-    rec("1_long_position_size", r["decision"] == "APPROVED" and r["position_size"] == Decimal("10"),
-        "APPROVED size=10", f"{r['decision']} size={r['position_size']}")
+    rec("1_long_position_size", r["decision"] == "APPROVED" and r["position_size"] == Decimal("8.333333"),
+        "APPROVED size=8.333333 (worst-case entry=101, not midpoint=100)", f"{r['decision']} size={r['position_size']}")
 
     r = rm.evaluate_risk("ETHUSDT", _NOW, _REGIME_OK, _setup("SHORT", stop_loss=105, targets=(90, 80, 70)),
                           _confirmation("CONFIRMED"), _OB_OK, _DQ_GOOD, _EMPTY_PORTFOLIO)
-    rec("2_short_position_size", r["decision"] == "APPROVED" and r["position_size"] == Decimal("10"),
-        "APPROVED size=10", f"{r['decision']} size={r['position_size']}")
+    rec("2_short_position_size", r["decision"] == "APPROVED" and r["position_size"] == Decimal("8.333333"),
+        "APPROVED size=8.333333 (worst-case entry=99, not midpoint=100)", f"{r['decision']} size={r['position_size']}")
 
     r_narrow = rm.evaluate_risk("ETHUSDT", _NOW, _REGIME_OK, _setup("LONG", stop_loss=95, targets=(110, 120, 130)),
                                  _confirmation("CONFIRMED"), _OB_OK, _DQ_GOOD, _EMPTY_PORTFOLIO)
     r_wide = rm.evaluate_risk("ETHUSDT", _NOW, _REGIME_OK, _setup("LONG", stop_loss=90, targets=(120, 140, 160)),
                                _confirmation("CONFIRMED"), _OB_OK, _DQ_GOOD, _EMPTY_PORTFOLIO)
-    rec("3_wide_sl_reduces_size_not_rejected", r_wide["decision"] == "APPROVED" and r_wide["position_size"] == r_narrow["position_size"] / 2,
-        "wide SL APPROVED, size = narrow/2", f"narrow={r_narrow['position_size']} wide={r_wide['position_size']} wide_decision={r_wide['decision']}")
+    # Not asserting an exact ratio -- worst-case-entry sizing means the
+    # narrow/2 relationship the old midpoint formula happened to produce
+    # isn't a general truth. What must hold: a wider SL is APPROVED (never
+    # rejected just for being wide) with a strictly smaller size for the
+    # same dollar risk.
+    rec("3_wide_sl_reduces_size_not_rejected", r_wide["decision"] == "APPROVED" and r_wide["position_size"] < r_narrow["position_size"],
+        "wide SL APPROVED, strictly smaller size than narrow SL", f"narrow={r_narrow['position_size']} wide={r_wide['position_size']} wide_decision={r_wide['decision']}")
 
     r = rm.evaluate_risk("ETHUSDT", _NOW, _REGIME_OK, _setup("LONG", stop_loss=95, targets=(102, 104, 106)),
                           _confirmation("CONFIRMED"), _OB_OK, _DQ_GOOD, _EMPTY_PORTFOLIO)

@@ -107,15 +107,22 @@ def _tp_side(direction: str) -> str:
     return "above" if direction == "LONG" else "below"
 
 
-def create_order(symbol: str, signal_id: str, setup: dict, risk_decision: dict, as_of: dt.datetime, config: dict) -> dict:
+def create_order(symbol: str, signal_id: str, setup: dict, risk_decision: dict, as_of: dt.datetime, config: dict,
+                  confirmation_status: str = "UNKNOWN") -> dict:
     """Builds a brand-new order record in SIGNAL_CREATED, immediately
     transitioning to PENDING_ENTRY (a simulated limit order is now live).
     Caller must only call this for APPROVED/APPROVED_REDUCED_SIZE risk
-    decisions -- WAIT_FOR_CONFIRMATION/REJECTED never reach here."""
+    decisions -- WAIT_FOR_CONFIRMATION/REJECTED never reach here.
+
+    `confirmation_status` (the Warstwa 3 status AT CREATION time) is
+    stored so `reevaluate_thesis` can later tell whether order flow has
+    genuinely reversed since this order was placed, vs. always having
+    been weak."""
     order = {
         "signal_id": signal_id, "symbol": symbol, "direction": setup["direction"],
         "entry_zone": {"low": _d(setup["entry_zone"]["low"]), "high": _d(setup["entry_zone"]["high"])},
         "invalidation": _d(setup.get("invalidation")),
+        "original_confirmation_status": confirmation_status,
         "stop_loss": _d(risk_decision["stop_loss"]), "current_sl": _d(risk_decision["stop_loss"]),
         "targets": [_d(t) for t in risk_decision["targets"]],
         "risk_position_size": _d(risk_decision["position_size"]),
@@ -132,6 +139,34 @@ def create_order(symbol: str, signal_id: str, setup: dict, risk_decision: dict, 
     }
     _log(order, "SIGNAL_CREATED", as_of, "risk decision approved, order not yet placed")
     _log(order, "PENDING_ENTRY", as_of, "simulated limit order placed, waiting for price to reach entry_zone")
+    return order
+
+
+def reevaluate_thesis(order: dict, fresh_confirmation_status: str, now: dt.datetime) -> dict:
+    """Cancels a PENDING_ENTRY/PARTIALLY_FILLED order if order flow has
+    flipped to CONTRADICTED since it was created, and wasn't already
+    CONTRADICTED then. This is the fix for a gap a live signal pair
+    exposed: an order can sit PENDING_ENTRY for however long, but nothing
+    previously re-checked whether the order-flow confirmation that
+    justified it in the first place still holds -- price-based
+    invalidation/TTL alone don't catch a thesis that quietly broke before
+    the market ever gave a fill.
+
+    Deliberately narrow trigger (only a flip INTO CONTRADICTED, not any
+    softer wobble like CONFIRMED->NEUTRAL) to avoid cancelling on routine
+    order-flow noise. Does not touch OPEN/TPx_HIT positions -- once
+    filled, SL/TP/trailing-stop rules govern exits, not a fresh
+    confirmation re-check (re-litigating a filled position's entire
+    thesis every tick would be a different, much noisier design)."""
+    if order["status"] not in ("PENDING_ENTRY", "PARTIALLY_FILLED"):
+        return order
+    original = order.get("original_confirmation_status")
+    if original == "CONTRADICTED" or fresh_confirmation_status != "CONTRADICTED":
+        return order
+    order = dict(order)
+    order["state_history"] = list(order.get("state_history", []))
+    _log(order, "CANCELLED", now,
+         f"order flow reversed before entry: was {original} at creation, now CONTRADICTED -- thesis no longer holds")
     return order
 
 

@@ -44,6 +44,9 @@ LOW_LIQUIDITY_SPREAD_BPS = Decimal("15")
 UNSTABLE_SPREAD_BPS = Decimal("40")
 MIN_DATA_QUALITY_SCORE = 50
 CASCADE_MIN_IMBALANCE = Decimal("0.5")
+# Matches orderflow_confirmation_v2.FUNDING_EXTREME_ABS -- same "is this
+# funding actually extreme" bar used consistently across layers.
+FUNDING_COUNTERARGUMENT_THRESHOLD = Decimal("0.0005")
 BREAKOUT_POSITION_HIGH = Decimal("0.9")
 BREAKOUT_POSITION_LOW = Decimal("0.1")
 VOLUME_ZSCORE_CONFIRM = Decimal("1.0")
@@ -111,18 +114,29 @@ def _reasons_for_cvd(volume: dict, direction: str) -> Tuple[List[str], List[str]
 
 
 def _reasons_for_funding(futures: dict, direction: str) -> Tuple[List[str], List[str]]:
-    """Funding is context only, never a standalone signal -- flags crowding
-    (squeeze risk) against the current move, nothing more."""
+    """Funding is context only, never a standalone signal -- flags
+    crowding (squeeze) risk AGAINST the current position only when
+    funding is crowded WITH the trade's own direction (positive funding
+    while LONG, negative funding while SHORT): that's when OUR side is
+    the one paying and exposed to a squeeze if price reverses.
+
+    Funding crowded AGAINST the trade's direction (e.g. negative funding
+    while LONG) means the OPPOSITE side is paying -- if anything that's a
+    tailwind (their squeeze risk, not ours), never a counterargument to
+    our own position. An earlier version of this function had the sign
+    backwards, flagging exactly the favorable case as a risk; fixed here.
+    A magnitude floor (FUNDING_COUNTERARGUMENT_THRESHOLD) avoids firing on
+    routine, non-extreme funding that most trending markets carry."""
     reasons, counter = [], []
     if not futures.get("available"):
         return reasons, counter
     funding = _d(futures.get("funding_rate"))
-    if funding is None:
+    if funding is None or abs(funding) < FUNDING_COUNTERARGUMENT_THRESHOLD:
         return reasons, counter
-    if direction == "UP" and funding < 0:
-        counter.append("funding is negative while price rises -- shorts are paying, squeeze risk against them")
-    elif direction == "DOWN" and funding > 0:
-        counter.append("funding is positive while price falls -- longs are paying, squeeze risk against them")
+    if direction == "UP" and funding > 0:
+        counter.append(f"funding {funding} positive while price rises -- longs are crowded and paying, squeeze risk against this long position")
+    elif direction == "DOWN" and funding < 0:
+        counter.append(f"funding {funding} negative while price falls -- shorts are crowded and paying, squeeze risk against this short position")
     return reasons, counter
 
 

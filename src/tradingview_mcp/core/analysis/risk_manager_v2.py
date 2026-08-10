@@ -111,7 +111,7 @@ def _confidence_scale(confidence: Decimal, min_conf: Decimal) -> Decimal:
 def _no_decision_result(symbol: str, setup: dict, config: dict, reason: str) -> dict:
     return {
         "symbol": symbol, "decision": "REJECTED", "direction": setup.get("direction"),
-        "reference_price": None, "entry_zone": None, "stop_loss": None, "sl_distance_pct": None,
+        "reference_price": None, "worst_case_entry": None, "entry_zone": None, "stop_loss": None, "sl_distance_pct": None,
         "risk_amount": Decimal("0"), "position_size": Decimal("0"), "position_value": Decimal("0"),
         "leverage_estimate": None, "targets": [], "reward_to_risk": [], "expected_fees": Decimal("0"),
         "estimated_slippage_bps": None, "reasons": [], "rejection_reasons": [reason],
@@ -248,20 +248,33 @@ def evaluate_risk(
         r["direction"] = direction
         return r
 
-    planned_entry = (_d(entry_zone["low"]) + _d(entry_zone["high"])) / 2
-    sl_distance = abs(planned_entry - stop_loss)
-    if sl_distance <= 0 or (direction == "LONG" and stop_loss >= planned_entry) or (direction == "SHORT" and stop_loss <= planned_entry):
-        r = _no_decision_result(symbol, setup, config, f"invalid SL: {stop_loss} is not on the correct side of planned entry {planned_entry} for a {direction}")
+    zone_low, zone_high = _d(entry_zone["low"]), _d(entry_zone["high"])
+    reference_price = (zone_low + zone_high) / 2  # midpoint -- reported for context/display only
+    # Sizing and reward:risk are computed from the WORST price achievable
+    # anywhere in entry_zone, not the midpoint. A fill can legitimately
+    # land anywhere in the zone; sizing off the midpoint understated real
+    # risk by up to ~60% when the actual fill landed near the far edge
+    # (confirmed against a live LTCUSDT/SUIUSDT signal pair -- reported
+    # risk_amount of $6.38 vs. a genuine $2.71-$10.07 range depending on
+    # fill location). Worst-case entry = the zone edge farthest from SL
+    # (highest price for a LONG, lowest for a SHORT) -- sizing off it
+    # guarantees realized risk never exceeds the stated risk_amount,
+    # only ever comes in safer than planned.
+    worst_case_entry = zone_high if direction == "LONG" else zone_low
+    sl_distance = abs(worst_case_entry - stop_loss)
+    if sl_distance <= 0 or (direction == "LONG" and stop_loss >= zone_low) or (direction == "SHORT" and stop_loss <= zone_high):
+        r = _no_decision_result(symbol, setup, config, f"invalid SL: {stop_loss} is not on the correct side of entry_zone [{zone_low}, {zone_high}] for a {direction}")
         r["direction"] = direction
         return r
-    sl_distance_pct = sl_distance / planned_entry * 100
+    sl_distance_pct = sl_distance / worst_case_entry * 100
 
-    reward_to_risk = [round(abs(t - planned_entry) / sl_distance, 2) for t in targets]
+    reward_to_risk = [round(abs(t - worst_case_entry) / sl_distance, 2) for t in targets]
     if reward_to_risk[0] < config["min_reward_to_risk"]:
         r = _no_decision_result(symbol, setup, config,
                                  f"reward:risk {reward_to_risk[0]} on TP1 below minimum {config['min_reward_to_risk']} -- SL is not widened to force this through")
         r["direction"] = direction
-        r["reference_price"] = planned_entry
+        r["reference_price"] = reference_price
+        r["worst_case_entry"] = worst_case_entry
         r["stop_loss"] = stop_loss
         r["sl_distance_pct"] = round(sl_distance_pct, 3)
         r["targets"] = targets
@@ -315,7 +328,7 @@ def evaluate_risk(
         effective_risk_pct = min(config["base_risk_pct"] * size_mult, config["max_risk_pct"])
         risk_amount = config["paper_capital"] * effective_risk_pct / 100
         position_size = risk_amount / sl_distance
-        position_value = position_size * planned_entry
+        position_value = position_size * worst_case_entry
 
         portfolio_check = _check_portfolio_limits(symbol, direction, position_value, risk_amount, portfolio_state, config)
         portfolio_limits_used = portfolio_check["limits_used"]
@@ -338,7 +351,12 @@ def evaluate_risk(
 
     return {
         "symbol": symbol, "decision": decision, "direction": direction,
-        "reference_price": planned_entry, "entry_zone": entry_zone, "stop_loss": stop_loss,
+        "reference_price": reference_price, "entry_zone": entry_zone, "stop_loss": stop_loss,
+        # Sizing/RR are computed off this, NOT reference_price -- see the
+        # comment above worst_case_entry's assignment. Reported explicitly
+        # so a reader never has to guess which price basis produced the
+        # numbers below.
+        "worst_case_entry": worst_case_entry,
         "sl_distance_pct": round(sl_distance_pct, 3),
         "risk_amount": round(risk_amount, 2), "position_size": round(position_size, 6),
         "position_value": round(position_value, 2), "leverage_estimate": leverage_estimate,

@@ -117,20 +117,23 @@ def apply_daily_weekly_rollover(state: dict, now: dt.datetime) -> dict:
 
 async def process_signal(
     session: AsyncSession, symbol: str, signal_id: str, setup: dict, risk_decision: dict,
-    as_of: dt.datetime, state: dict, config: dict,
+    confirmation_status: str, as_of: dt.datetime, state: dict, config: dict,
     regime_changed: bool = False, regime_change_detail: str = "",
 ) -> Optional[dict]:
     """Creates a new order AT MOST ONCE per `signal_id` (dedup), and only
     ever for APPROVED/APPROVED_REDUCED_SIZE -- WAIT_FOR_CONFIRMATION and
     REJECTED NEVER reach `paper_execution_v2.create_order`. For an
-    existing order, advances it forward using only 1m candles strictly
-    after its last-processed checkpoint (no look-ahead, no re-processing
-    already-seen candles on a re-run)."""
+    existing order, first re-validates it against `confirmation_status`
+    (this tick's FRESH order-flow read for the same signal -- see
+    `paper_execution_v2.reevaluate_thesis`), then advances it forward
+    using only 1m candles strictly after its last-processed checkpoint (no
+    look-ahead, no re-processing already-seen candles on a re-run)."""
     orders = state["orders"]
     if signal_id not in orders:
         if risk_decision.get("decision") not in ("APPROVED", "APPROVED_REDUCED_SIZE"):
             return None
-        order = pe.create_order(symbol, signal_id, setup, risk_decision, as_of, config)
+        order = pe.create_order(symbol, signal_id, setup, risk_decision, as_of, config,
+                                 confirmation_status=confirmation_status)
         orders[signal_id] = order
         _settle_costs_into_balance(state, order, delta_only=True, previous=None)
         return order
@@ -140,8 +143,15 @@ async def process_signal(
     if order["status"] in pe.TERMINAL_STATES:
         return order
 
+    order = pe.reevaluate_thesis(order, confirmation_status, as_of)
+    if order["status"] == "CANCELLED":
+        orders[signal_id] = order
+        _settle_costs_into_balance(state, order, delta_only=True, previous=previous)
+        return order
+
     last_ts = _last_progress_ts(order)
     if last_ts >= as_of:
+        orders[signal_id] = order
         return order
 
     rows = await qr.get_candles_between(session, symbol, "1", last_ts, as_of, limit=5000)
