@@ -44,6 +44,7 @@ jobs:
             tests/unit/trading/test_comparison_diagnostics_v1.py \
             tests/unit/trading/test_comparison_funnel_v1.py \
             tests/unit/trading/test_comparison_candidate_v1.py \
+            tests/unit/trading/test_comparison_candidate_semantic_v1.py \
             tests/unit/trading/test_comparison_lifecycle_v1.py \
             tests/unit/trading/test_comparison_report_v1.py \
             tests/unit/trading/test_w5_comparison_diagnostics_v1.py \
