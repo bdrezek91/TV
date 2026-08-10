@@ -69,6 +69,25 @@ Changing production W5 while benchmarking it would contaminate the baseline.
 These findings should be addressed in a separate production-fix PR after the
 benchmark baseline and current paper state are protected.
 
+## Paired diagnostics
+
+The research code now has explicit comparison categories for the same
+symbol/decision timestamp:
+
+- `BOTH_SIGNAL_SAME_DIRECTION`
+- `ONLY_LEGACY`
+- `ONLY_RESEARCH_V2`
+- `DIRECTION_CONFLICT`
+- `BOTH_NO_TRADE`
+
+Matched setup families are also kept separate:
+
+- legacy `trend_pullback` ↔ Research V2 `trend_pullback`
+- legacy `breakout_retest` ↔ Research V2 `breakout`
+
+`mean_reversion` and `liquidation_reversal` are not forced into fake legacy
+counterparts.
+
 ## Local Postgres smoke test
 
 The read-only smoke runner is:
@@ -93,9 +112,7 @@ produce a final statistical winner.
 
 Still required:
 
-- enforce/report requested-window coverage against the exact common source
-  overlap;
-- paired signal report (`same direction`, `only legacy`, `only V2`, `conflict`);
+- wire the strict coverage validator and paired categories into the smoke JSON;
 - production-as-is execution sensitivity report;
 - native full-system/portfolio simulation separate from fixed-risk alpha test;
 - extended Bybit history cache with explicit degradation when liquidation or
