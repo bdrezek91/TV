@@ -29,6 +29,12 @@ x-trading-env: &trading-env
   MAX_DATA_AGE_ORDERBOOK_SECONDS: ${MAX_DATA_AGE_ORDERBOOK_SECONDS:-5}
   MAX_DATA_AGE_OI_SECONDS: ${MAX_DATA_AGE_OI_SECONDS:-600}
   MAX_DATA_AGE_CANDLES_SECONDS: ${MAX_DATA_AGE_CANDLES_SECONDS:-180}
+  ORDERBOOK_RETENTION_ENABLED: ${ORDERBOOK_RETENTION_ENABLED:-true}
+  ORDERBOOK_HIGH_RES_RETENTION_DAYS: ${ORDERBOOK_HIGH_RES_RETENTION_DAYS:-30}
+  ORDERBOOK_ARCHIVE_RETENTION_DAYS: ${ORDERBOOK_ARCHIVE_RETENTION_DAYS:-180}
+  ORDERBOOK_DOWNSAMPLE_SECONDS: ${ORDERBOOK_DOWNSAMPLE_SECONDS:-60}
+  ORDERBOOK_RETENTION_BATCH_SIZE: ${ORDERBOOK_RETENTION_BATCH_SIZE:-5000}
+  ORDERBOOK_MAINTENANCE_INTERVAL_SECONDS: ${ORDERBOOK_MAINTENANCE_INTERVAL_SECONDS:-21600}
   PAPER_STARTING_BALANCE: ${PAPER_STARTING_BALANCE:-10000}
   RISK_PER_TRADE_PCT: ${RISK_PER_TRADE_PCT:-0.25}
   MAX_DAILY_LOSS_PCT: ${MAX_DAILY_LOSS_PCT:-1.00}
@@ -132,6 +138,25 @@ services:
       retries: 5
       start_period: 20s
     stop_grace_period: 15s
+    logging: *default-logging
+    networks:
+      - trading-net
+
+  # Separate retention worker: it never participates in signal generation and
+  # cannot stop the live collector. Recent orderbook data stays at full 5s
+  # resolution; older history is thinned and eventually expired.
+  orderbook-maintenance:
+    build: .
+    image: atilaahmet/tradingview-mcp:latest
+    container_name: trading-orderbook-maintenance
+    restart: unless-stopped
+    entrypoint: ["python", "-m", "tradingview_mcp.workers.orderbook_maintenance_main"]
+    environment:
+      <<: *trading-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    stop_grace_period: 30s
     logging: *default-logging
     networks:
       - trading-net
