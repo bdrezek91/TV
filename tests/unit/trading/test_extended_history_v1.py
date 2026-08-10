@@ -11,8 +11,10 @@ from tradingview_mcp.core.backtest.extended_history_v1 import (
     parse_funding_rows,
     parse_kline_rows,
     parse_open_interest_rows,
+    parse_price_kline_rows,
     parse_ratio_rows,
     public_trade_archive_urls,
+    reconstruct_derivative_snapshots,
     rest_query_plan,
 )
 
@@ -55,6 +57,22 @@ def test_kline_parser_sorts_oldest_first_and_uses_decimals():
     assert rows[1]["turnover"] == Decimal("25")
 
 
+def test_price_kline_parser_accepts_mark_index_shape_without_volume():
+    response = {"result": {"list": [
+        ["2000", "102", "104", "101", "103"],
+        ["1000", "100", "103", "99", "102"],
+    ]}}
+    rows = parse_price_kline_rows(response)
+    assert [r["open_time"].timestamp() for r in rows] == [1.0, 2.0]
+    assert rows[0] == {
+        "open_time": dt.datetime.fromtimestamp(1, tz=UTC),
+        "open": Decimal("100"),
+        "high": Decimal("103"),
+        "low": Decimal("99"),
+        "close": Decimal("102"),
+    }
+
+
 def test_derivatives_parsers_normalize_timestamps_and_values():
     oi = parse_open_interest_rows({"result": {"list": [{"timestamp": "1000", "openInterest": "12.5"}]}})
     funding = parse_funding_rows({"result": {"list": [{"fundingRateTimestamp": "2000", "fundingRate": "0.0001"}]}})
@@ -62,6 +80,53 @@ def test_derivatives_parsers_normalize_timestamps_and_values():
     assert oi[0]["open_interest"] == Decimal("12.5")
     assert funding[0]["funding_rate"] == Decimal("0.0001")
     assert ratio[0]["long_short_ratio"] == Decimal("1.5")
+
+
+def test_derivative_reconstruction_uses_only_latest_values_at_or_before_oi_timestamp():
+    t10 = dt.datetime(2026, 8, 10, 10, 0, tzinfo=UTC)
+    t1005 = dt.datetime(2026, 8, 10, 10, 5, tzinfo=UTC)
+    t1010 = dt.datetime(2026, 8, 10, 10, 10, tzinfo=UTC)
+    t1015 = dt.datetime(2026, 8, 10, 10, 15, tzinfo=UTC)
+
+    oi = [
+        {"source_timestamp": t1005, "open_interest": Decimal("10")},
+        {"source_timestamp": t1010, "open_interest": Decimal("11")},
+    ]
+    mark = [
+        {"open_time": t10, "close": Decimal("100")},
+        {"open_time": t1010, "close": Decimal("105")},
+        {"open_time": t1015, "close": Decimal("999")},  # future for both OI rows
+    ]
+    index = [
+        {"open_time": t10, "close": Decimal("99")},
+        {"open_time": t1010, "close": Decimal("103")},
+        {"open_time": t1015, "close": Decimal("1")},
+    ]
+    funding = [
+        {"source_timestamp": t10, "funding_rate": Decimal("0.0001")},
+        {"source_timestamp": t1015, "funding_rate": Decimal("0.9")},
+    ]
+    ratio = [
+        {"source_timestamp": t10, "long_short_ratio": Decimal("1.2")},
+        {"source_timestamp": t1015, "long_short_ratio": Decimal("9")},
+    ]
+
+    rows = reconstruct_derivative_snapshots(oi, mark, index, funding, ratio)
+    assert len(rows) == 2
+    assert rows[0]["mark_price"] == Decimal("100")
+    assert rows[0]["index_price"] == Decimal("99")
+    assert rows[0]["funding_rate"] == Decimal("0.0001")
+    assert rows[0]["long_short_ratio"] == Decimal("1.2")
+    assert rows[0]["open_interest_value"] == Decimal("1000")
+    assert rows[0]["basis"] == Decimal("1")
+
+    # At 10:10 the 10:10 mark/index rows are allowed, but the 10:15 future
+    # funding/ratio/price rows must not leak backward.
+    assert rows[1]["mark_price"] == Decimal("105")
+    assert rows[1]["index_price"] == Decimal("103")
+    assert rows[1]["funding_rate"] == Decimal("0.0001")
+    assert rows[1]["long_short_ratio"] == Decimal("1.2")
+    assert rows[1]["mark_price"] != Decimal("999")
 
 
 def test_trade_archive_streams_into_same_one_minute_aggregation(tmp_path):
@@ -77,8 +142,7 @@ def test_trade_archive_streams_into_same_one_minute_aggregation(tmp_path):
     assert row["buy_taker_volume"] == Decimal("1")
     assert row["sell_taker_volume"] == Decimal("0.5")
     assert row["delta"] == Decimal("0.5")
-    # 1 BTC x 60k and .5 BTC x 60,010 both exceed the live $50k threshold
-    # only the first does; verify reuse of live aggregation rule.
+    # Only the 1 BTC x 60k trade exceeds the live $50k threshold.
     assert row["large_trade_count"] == 1
 
 
