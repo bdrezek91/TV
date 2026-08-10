@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Strict local A/B/C runner for BACKTEST_COMPARISON_V1.
+"""Strict local A/B/C + TV-shadow runner for BACKTEST_COMPARISON_V1.
 
-Unlike the phase-0 CLI, this runner fails closed unless every selected symbol
-has a common point-in-time window with enough warm-up and at least 12 hours of
-future 1m execution data after the last decision cutoff.
+Fails closed unless every selected symbol has a common point-in-time window
+with enough warm-up and at least 12 hours of future 1m execution data after
+the last decision cutoff.
 
-It is READ-ONLY relative to production: DB reads only, no paper-state loads or
-saves, no signal snapshot writes, no exchange order endpoints.
+READ-ONLY relative to production: DB reads only, no paper-state loads/saves,
+no signal snapshot writes, no exchange order endpoints. TV shadow is strictly
+observational and cannot change W4/W5 decisions.
 """
 from __future__ import annotations
 
@@ -37,12 +38,14 @@ from tradingview_mcp.core.backtest.comparison_history_v1 import (
     build_research_v2_chain,
     neutral_signals_from_legacy,
     neutral_signals_from_research,
+    windows_as_of,
 )
 from tradingview_mcp.core.backtest.comparison_v1 import (
     Variant,
     decision_times,
     summarize_observations,
 )
+from tradingview_mcp.core.backtest.tv_shadow_v1 import evaluate_tv_shadow
 from tradingview_mcp.core.config.trading_settings import get_trading_settings
 from tradingview_mcp.core.database.repositories import query_repository as qr
 from tradingview_mcp.core.database.session import session_scope
@@ -125,9 +128,6 @@ def coverage_from_inputs(data: HistoricalInputs) -> dict[str, Any]:
     raw_start = max(spans[name]["earliest_available"] for name in decision_sources)
     decision_start = max(warmup_start, raw_start)
     decision_end_data = min(spans[name]["latest_available"] for name in decision_sources)
-    # Require enough future 1m path to decide whether a pending order got its
-    # 12h entry opportunity. Filled positions may still be right-censored and
-    # are reported separately rather than fabricated closed.
     execution_safe_end = spans["candles_1m"]["latest_available"] - MIN_FUTURE_EXECUTION
     decision_end = min(decision_end_data, execution_safe_end)
     complete = decision_end >= decision_start
@@ -170,9 +170,9 @@ def _future_1m(data: HistoricalInputs, cutoff: dt.datetime) -> list[dict]:
     return [dict(c) for c in data.candles_1m if c["open_time"] >= cutoff]
 
 
-def _trade_row(result, mode: str) -> dict[str, Any]:
+def _trade_row(result, mode: str, shadow=None) -> dict[str, Any]:
     order = result.order
-    return {
+    row = {
         "execution_mode": mode,
         "variant": result.signal.variant.value,
         "symbol": result.signal.symbol,
@@ -192,11 +192,38 @@ def _trade_row(result, mode: str) -> dict[str, Any]:
         "slippage_cost": order.get("slippage_cost"),
         "funding_paid": order.get("funding_paid"),
         "remaining_size": order.get("remaining_size"),
+        "tv_shadow_status": None,
+        "tv_shadow_score": None,
+        "tv_shadow_confidence": None,
+        "tv_history_kind": None,
+        "tv_can_affect_decision": None,
     }
+    if shadow is not None:
+        row.update({
+            "tv_shadow_status": shadow.status,
+            "tv_shadow_score": shadow.score,
+            "tv_shadow_confidence": shadow.confidence,
+            "tv_history_kind": shadow.history_kind,
+            "tv_can_affect_decision": shadow.can_affect_decision,
+        })
+    return row
 
 
 def _right_censored(observations) -> int:
     return sum(1 for x in observations if x.filled and x.r_multiple is None)
+
+
+def _shadow_counterfactual(pairs) -> dict[str, Any]:
+    baseline = [obs for _, obs in pairs]
+    drop_contradicted = [obs for status, obs in pairs if status != "CONTRADICTED"]
+    confirmed_or_weak = [obs for status, obs in pairs if status in {"CONFIRMED", "WEAK_CONFIRMATION"}]
+    return {
+        "BASELINE_ALL_RESEARCH_V2": summarize_observations(baseline),
+        "HYPOTHETICAL_DROP_TV_CONTRADICTED": summarize_observations(drop_contradicted),
+        "HYPOTHETICAL_KEEP_TV_CONFIRMED_OR_WEAK": summarize_observations(confirmed_or_weak),
+        "predeclared_before_outcome_review": True,
+        "tv_shadow_had_zero_effect_on_original_decisions": True,
+    }
 
 
 async def run(args) -> dict[str, Any]:
@@ -238,10 +265,7 @@ async def run(args) -> dict[str, Any]:
     end = min(req_end, exact_end) if args.auto_clamp else req_end
     cutoffs = decision_times(start, end)
     if not cutoffs:
-        return {
-            "status": "NO_DECISION_TIMES_IN_WINDOW",
-            "window": {"start": start, "end": end},
-        }
+        return {"status": "NO_DECISION_TIMES_IN_WINDOW", "window": {"start": start, "end": end}}
 
     primary_obs = defaultdict(list)
     sensitivity_obs = defaultdict(list)
@@ -252,6 +276,9 @@ async def run(args) -> dict[str, Any]:
     family_counts = defaultdict(Counter)
     as_is_vs_fixed_counts = Counter()
     research_state = {s: None for s in symbols}
+    shadow_counts = Counter()
+    shadow_observations = defaultdict(list)
+    shadow_pairs = []
 
     for cutoff in cutoffs:
         btc_regime = None
@@ -274,6 +301,8 @@ async def run(args) -> dict[str, Any]:
             legacy_as_is = neutral_signals_from_legacy(build_legacy_chain(symbol, data, cutoff, fixed_tv=False))
             legacy_fixed = neutral_signals_from_legacy(build_legacy_chain(symbol, data, cutoff, fixed_tv=True))
             research = neutral_signals_from_research(research_chains[symbol], approved_only=True)
+            research_windows = windows_as_of(data, cutoff)
+            research_shadow = {id(s): evaluate_tv_shadow(s, research_windows) for s in research}
 
             pair_category = signal_set_category(legacy_fixed, research)
             pair_counts[pair_category] += 1
@@ -289,6 +318,7 @@ async def run(args) -> dict[str, Any]:
             for variant_name, signals in groups.items():
                 for signal in signals:
                     future = _future_1m(data, cutoff)
+                    shadow = research_shadow.get(id(signal)) if variant_name == Variant.RESEARCH_V2.value else None
                     primary = simulate_neutral_signal(
                         signal,
                         future,
@@ -303,15 +333,26 @@ async def run(args) -> dict[str, Any]:
                     )
                     primary_obs[variant_name].append(primary.observation)
                     sensitivity_obs[variant_name].append(sensitivity.observation)
-                    primary_trade_rows.append(_trade_row(primary, "PRIMARY_NORMALIZED"))
-                    sensitivity_trade_rows.append(_trade_row(sensitivity, "W5_PRODUCTION_AS_IS_SENSITIVITY"))
+                    primary_trade_rows.append(_trade_row(primary, "PRIMARY_NORMALIZED", shadow))
+                    sensitivity_trade_rows.append(_trade_row(sensitivity, "W5_PRODUCTION_AS_IS_SENSITIVITY", shadow))
+                    if shadow is not None:
+                        shadow_counts[shadow.status] += 1
+                        shadow_observations[shadow.status].append(primary.observation)
+                        shadow_pairs.append((shadow.status, primary.observation))
 
             decision_rows.append({
                 "cutoff": cutoff,
                 "symbol": symbol,
                 "legacy_as_is": [{"setup": s.setup_name, "direction": s.direction} for s in legacy_as_is],
                 "legacy_fixed_tv": [{"setup": s.setup_name, "direction": s.direction} for s in legacy_fixed],
-                "research_v2": [{"setup": s.setup_name, "direction": s.direction} for s in research],
+                "research_v2": [
+                    {
+                        "setup": s.setup_name,
+                        "direction": s.direction,
+                        "tv_shadow": research_shadow[id(s)].to_dict(),
+                    }
+                    for s in research
+                ],
                 "legacy_fixed_vs_research_category": pair_category,
                 "matched_families": paired_setup_families(legacy_fixed, research),
                 "research_regime": research_chains[symbol]["regime"].get("primary_regime"),
@@ -325,6 +366,9 @@ async def run(args) -> dict[str, Any]:
         primary_summary[v.value]["right_censored_filled"] = _right_censored(primary_obs[v.value])
         sensitivity_summary[v.value]["right_censored_filled"] = _right_censored(sensitivity_obs[v.value])
 
+    tv_shadow_outcomes = {
+        status: summarize_observations(rows) for status, rows in sorted(shadow_observations.items())
+    }
     payload = {
         "research_contract": "BACKTEST_COMPARISON_V1",
         "run_kind": "GUARDED_LOCAL_OVERLAP",
@@ -352,13 +396,19 @@ async def run(args) -> dict[str, Any]:
         "paired_legacy_fixed_vs_research": dict(pair_counts),
         "matched_family_counts": {family: dict(counts) for family, counts in family_counts.items()},
         "legacy_as_is_vs_fixed_signal_delta": dict(as_is_vs_fixed_counts),
+        "research_v2_tv_shadow": {
+            "can_affect_decision": False,
+            "history_kind": "TV_RECONSTRUCTED_CLASSIC_TA_V1",
+            "counts": dict(shadow_counts),
+            "outcomes_by_status": tv_shadow_outcomes,
+            "predeclared_counterfactual_filters": _shadow_counterfactual(shadow_pairs),
+        },
         "w5_known_quirks": {
             "two_target_residual_fraction_production": str(production_two_target_residual_fraction()),
             "entry_fee_omitted_from_production_realized_pnl": True,
             "fill_candle_can_be_reused_for_exit_in_production_assembly": True,
             "repeated_partial_fill_overwrite_reproducer": True,
         },
-        "research_v2_tv": "PENDING_EXTERNAL_CONFIRMATION_HISTORY_ADAPTER",
     }
 
     OUT.mkdir(parents=True, exist_ok=True)
