@@ -20,6 +20,7 @@ Likewise, historical liquidations are never fabricated from price action.
 """
 from __future__ import annotations
 
+import bisect
 import csv
 import datetime as dt
 import gzip
@@ -143,6 +144,7 @@ def rest_query_plan(symbol: str, start: dt.datetime, end: dt.datetime) -> list[d
 
 
 def parse_kline_rows(response: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Trade-price klines, which include volume/turnover."""
     rows = (response.get("result") or {}).get("list") or []
     out = []
     for row in rows:
@@ -156,6 +158,24 @@ def parse_kline_rows(response: Mapping[str, Any]) -> list[dict[str, Any]]:
             "close": Decimal(str(row[4])),
             "volume": Decimal(str(row[5])),
             "turnover": Decimal(str(row[6])) if len(row) > 6 and row[6] is not None else None,
+        })
+    out.sort(key=lambda r: r["open_time"])
+    return out
+
+
+def parse_price_kline_rows(response: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Mark/index/premium price klines; volume is not required."""
+    rows = (response.get("result") or {}).get("list") or []
+    out = []
+    for row in rows:
+        if len(row) < 5:
+            continue
+        out.append({
+            "open_time": dt.datetime.fromtimestamp(int(row[0]) / 1000, tz=dt.timezone.utc),
+            "open": Decimal(str(row[1])),
+            "high": Decimal(str(row[2])),
+            "low": Decimal(str(row[3])),
+            "close": Decimal(str(row[4])),
         })
     out.sort(key=lambda r: r["open_time"])
     return out
@@ -213,6 +233,59 @@ def parse_ratio_rows(response: Mapping[str, Any]) -> list[dict[str, Any]]:
     return out
 
 
+def _latest_at_or_before(rows: Sequence[Mapping[str, Any]], timestamps: Sequence[dt.datetime], at: dt.datetime):
+    idx = bisect.bisect_right(timestamps, at) - 1
+    return rows[idx] if idx >= 0 else None
+
+
+def reconstruct_derivative_snapshots(
+    open_interest: Sequence[Mapping[str, Any]],
+    mark_klines: Sequence[Mapping[str, Any]],
+    index_klines: Sequence[Mapping[str, Any]],
+    funding: Sequence[Mapping[str, Any]],
+    ratios: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Build 5m-ish derivative snapshots anchored on OI timestamps.
+
+    Every auxiliary value is taken from the latest record at-or-before the OI
+    timestamp. Nothing is interpolated from the future.
+    """
+    oi_rows = sorted(open_interest, key=lambda r: r["source_timestamp"])
+    mark_rows = sorted(mark_klines, key=lambda r: r["open_time"])
+    index_rows = sorted(index_klines, key=lambda r: r["open_time"])
+    funding_rows = sorted(funding, key=lambda r: r["source_timestamp"])
+    ratio_rows = sorted(ratios, key=lambda r: r["source_timestamp"])
+    mark_ts = [r["open_time"] for r in mark_rows]
+    index_ts = [r["open_time"] for r in index_rows]
+    funding_ts = [r["source_timestamp"] for r in funding_rows]
+    ratio_ts = [r["source_timestamp"] for r in ratio_rows]
+
+    out: list[dict[str, Any]] = []
+    for oi in oi_rows:
+        ts = oi["source_timestamp"]
+        mark = _latest_at_or_before(mark_rows, mark_ts, ts)
+        index = _latest_at_or_before(index_rows, index_ts, ts)
+        fund = _latest_at_or_before(funding_rows, funding_ts, ts)
+        ratio = _latest_at_or_before(ratio_rows, ratio_ts, ts)
+        mark_price = Decimal(str(mark["close"])) if mark is not None else None
+        index_price = Decimal(str(index["close"])) if index is not None else None
+        basis = (mark_price - index_price) if (mark_price is not None and index_price is not None) else None
+        basis_pct = (basis / index_price * Decimal("100")) if (basis is not None and index_price) else None
+        oi_value = (Decimal(str(oi["open_interest"])) * mark_price) if mark_price is not None else None
+        out.append({
+            "source_timestamp": ts,
+            "open_interest": Decimal(str(oi["open_interest"])),
+            "open_interest_value": oi_value,
+            "funding_rate": Decimal(str(fund["funding_rate"])) if fund is not None else None,
+            "mark_price": mark_price,
+            "index_price": index_price,
+            "basis": basis,
+            "basis_pct": basis_pct,
+            "long_short_ratio": Decimal(str(ratio["long_short_ratio"])) if (ratio is not None and ratio.get("long_short_ratio") is not None) else None,
+        })
+    return out
+
+
 def _first(row: Mapping[str, str], names: Sequence[str]) -> Optional[str]:
     lowered = {str(k).lower(): v for k, v in row.items()}
     for name in names:
@@ -224,8 +297,6 @@ def _first(row: Mapping[str, str], names: Sequence[str]) -> Optional[str]:
 
 def _parse_trade_timestamp(raw: str) -> dt.datetime:
     value = Decimal(str(raw))
-    # Historical archives have used Unix seconds (including fractional
-    # seconds); current public APIs use milliseconds. Detect by magnitude.
     seconds = value / Decimal("1000") if value >= Decimal("100000000000") else value
     return dt.datetime.fromtimestamp(float(seconds), tz=dt.timezone.utc)
 
