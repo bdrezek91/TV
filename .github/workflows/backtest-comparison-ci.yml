@@ -31,4 +31,6 @@ jobs:
             tests/unit/trading/test_backtest_comparison_v1.py \
             tests/unit/trading/test_comparison_execution_v1.py \
             tests/unit/trading/test_comparison_history_v1.py \
+            tests/unit/trading/test_comparison_diagnostics_v1.py \
+            tests/unit/trading/test_w5_comparison_diagnostics_v1.py \
             tests/unit/trading/test_tradingview_context.py
