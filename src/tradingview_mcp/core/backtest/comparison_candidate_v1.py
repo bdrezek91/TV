@@ -11,9 +11,10 @@ Repairs are contract/instrumentation driven, not outcome tuned:
    undetectable; only the generic confidence multiplier is de-biased.
 2. Setup geometry must satisfy the W4 contract: SL must be outside the entry
    zone and targets are measured from W4's conservative worst-case entry.
-3. Breakout invalidation is anchored around the broken level instead of the
-   opposite edge of the whole prior range. A breakout that falls materially
-   back through the broken level is invalid before a full-range traversal.
+3. Breakout stop/invalidation are anchored around the broken level instead of
+   the opposite edge of the whole prior range. A normal retest of the broken
+   level is allowed; pre-entry invalidation only fires after a material ATR-
+   buffered failure back through the level.
 
 Nothing here writes DB/paper/exchange state.
 """
@@ -35,7 +36,8 @@ from tradingview_mcp.core.services import regime_service_v2 as rs
 
 
 TARGET_R_MULTIPLIERS = (Decimal("1.5"), Decimal("2.5"), Decimal("4.0"))
-BREAKOUT_INVALIDATION_ATR = Decimal("0.5")
+BREAKOUT_STOP_ATR = Decimal("0.5")
+BREAKOUT_PREENTRY_INVALIDATION_ATR = Decimal("0.25")
 MIN_ZONE_CLEARANCE_ATR = Decimal("0.1")
 
 
@@ -133,15 +135,32 @@ def repair_setup_geometry(setup: Mapping[str, Any], features: Mapping[str, Any])
         level = resistance if direction == "LONG" else support
         if level is not None:
             if direction == "LONG":
-                candidate_stop = level - atr * BREAKOUT_INVALIDATION_ATR
-                candidate_stop = min(candidate_stop, zone_low - atr * MIN_ZONE_CLEARANCE_ATR)
+                candidate_stop = min(
+                    level - atr * BREAKOUT_STOP_ATR,
+                    zone_low - atr * MIN_ZONE_CLEARANCE_ATR,
+                )
+                preentry_invalidation = min(
+                    level - atr * BREAKOUT_PREENTRY_INVALIDATION_ATR,
+                    zone_low - atr * MIN_ZONE_CLEARANCE_ATR,
+                )
+                # Invalidation should be above/equal to the stop for a LONG:
+                # it cancels an unfilled retest before the wider protective SL
+                # would matter, but a touch of the broken level itself is OK.
+                preentry_invalidation = max(preentry_invalidation, candidate_stop)
             else:
-                candidate_stop = level + atr * BREAKOUT_INVALIDATION_ATR
-                candidate_stop = max(candidate_stop, zone_high + atr * MIN_ZONE_CLEARANCE_ATR)
-            if candidate_stop != stop:
+                candidate_stop = max(
+                    level + atr * BREAKOUT_STOP_ATR,
+                    zone_high + atr * MIN_ZONE_CLEARANCE_ATR,
+                )
+                preentry_invalidation = max(
+                    level + atr * BREAKOUT_PREENTRY_INVALIDATION_ATR,
+                    zone_high + atr * MIN_ZONE_CLEARANCE_ATR,
+                )
+                preentry_invalidation = min(preentry_invalidation, candidate_stop)
+            if candidate_stop != stop or _d(out.get("invalidation")) != preentry_invalidation:
                 stop = candidate_stop
-                out["invalidation"] = level
-                adjustments.append("BREAKOUT_STOP_ANCHORED_TO_BROKEN_LEVEL")
+                out["invalidation"] = preentry_invalidation
+                adjustments.append("BREAKOUT_STOP_AND_PREENTRY_INVALIDATION_ANCHORED_TO_BROKEN_LEVEL")
 
     repaired_stop = _outside_zone_stop(direction, zone_low, zone_high, stop, atr)
     if repaired_stop != stop:
@@ -251,7 +270,7 @@ def build_research_v2_candidate_chain_indexed(
         "symbol": symbol,
         "as_of": cutoff,
         "variant": Variant.RESEARCH_V2,
-        "candidate_kind": "RESEARCH_V2_CONTRACT_REPAIRED_V1",
+        "candidate_kind": "RESEARCH_V2_CONTRACT_REPAIRED_V2",
         "regime": regime,
         "setups": setups,
         "confirmations": confirmations,
