@@ -5,6 +5,13 @@ Status: `IMPLEMENTATION_IN_PROGRESS — LOCAL_SMOKE_PENDING_VPS_DATA`
 This research track compares the old Block 1–3 TradingView+Bybit engine with
 Research V2 without changing the live paper portfolio or production decisions.
 
+## Validation status
+
+GitHub Actions `Backtest Comparison CI` passes **29/29 tests** covering the
+research comparison helpers plus the existing TradingView-context regression.
+This validates code-level invariants only; it is not a trading-performance
+result and does not replace the pending VPS historical smoke run.
+
 ## Variants
 
 - `LEGACY_AS_IS` — current legacy parser behaviour preserved.
@@ -71,7 +78,7 @@ benchmark baseline and current paper state are protected.
 
 ## Paired diagnostics
 
-The research code now has explicit comparison categories for the same
+The research code has explicit comparison categories for the same
 symbol/decision timestamp:
 
 - `BOTH_SIGNAL_SAME_DIRECTION`
@@ -87,6 +94,23 @@ Matched setup families are also kept separate:
 
 `mean_reversion` and `liquidation_reversal` are not forced into fake legacy
 counterparts.
+
+## Exact-source coverage
+
+The comparison fails closed when a required source is absent. The exact local
+benchmark requires all of:
+
+- 4h candles;
+- 1h candles;
+- 15m candles;
+- 1m execution candles;
+- 1m trade aggregates;
+- 1m liquidation aggregates;
+- orderbook snapshots;
+- derivatives snapshots.
+
+Missing data is never treated as neutral confirmation or silently omitted from
+the overlap calculation.
 
 ## Local Postgres smoke test
 
