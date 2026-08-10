@@ -8,8 +8,10 @@ on:
       - 'scripts/research/backtest_comparison_v1.py'
       - 'scripts/research/backtest_comparison_guarded_v1.py'
       - 'scripts/research/backfill_extended_history_v1.py'
+      - 'scripts/research/backtest_comparison_extended_v1.py'
       - 'tests/unit/trading/test_*comparison*v1.py'
       - 'tests/unit/trading/test_extended_history*.py'
+      - 'tests/unit/trading/test_tv_shadow_v1.py'
       - '.github/workflows/backtest-comparison-ci.yml'
   workflow_dispatch:
 
@@ -39,9 +41,13 @@ jobs:
             tests/unit/trading/test_extended_history_v1.py \
             tests/unit/trading/test_extended_history_downloader_v1.py \
             tests/unit/trading/test_extended_history_loader_v1.py \
+            tests/unit/trading/test_tv_shadow_v1.py \
             tests/unit/trading/test_tradingview_context.py
       - name: Validate research CLIs import and parse
         run: |
           python scripts/research/backtest_comparison_v1.py --help >/dev/null
           python scripts/research/backtest_comparison_guarded_v1.py --help >/dev/null
           python scripts/research/backfill_extended_history_v1.py --help >/dev/null
+          if [ -f scripts/research/backtest_comparison_extended_v1.py ]; then
+            python scripts/research/backtest_comparison_extended_v1.py --help >/dev/null
+          fi
