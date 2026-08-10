@@ -63,7 +63,6 @@ def test_invalid_long_stop_is_moved_outside_entry_zone_and_rr_contract_aligned()
         "targets": [Decimal("110"), Decimal("115"), Decimal("120")],
         "reasons": [],
     }
-    # Already outside the zone; target geometry is what needs alignment.
     out = repair_setup_geometry(setup, _features())
     assert Decimal(str(out["stop_loss"])) < Decimal("100")
     assert _rr(out) >= Decimal("1.5")
@@ -85,7 +84,7 @@ def test_stop_inside_zone_is_repaired():
     assert "SL_MOVED_OUTSIDE_ENTRY_ZONE" in out["comparison_candidate_adjustments"]
 
 
-def test_breakout_stop_is_anchored_to_broken_level_not_opposite_range_edge():
+def test_breakout_stop_and_preentry_invalidation_are_buffered_below_broken_level():
     setup = {
         "setup_type": "breakout",
         "direction": "LONG",
@@ -97,9 +96,11 @@ def test_breakout_stop_is_anchored_to_broken_level_not_opposite_range_edge():
     }
     out = repair_setup_geometry(setup, _features(atr="10", support="90", resistance="110"))
     stop = Decimal(str(out["stop_loss"]))
+    invalidation = Decimal(str(out["invalidation"]))
     assert stop == Decimal("105")
-    assert out["invalidation"] == Decimal("110")
-    assert "BREAKOUT_STOP_ANCHORED_TO_BROKEN_LEVEL" in out["comparison_candidate_adjustments"]
+    assert invalidation == Decimal("107.5")
+    assert stop < invalidation < Decimal("110")
+    assert "BREAKOUT_STOP_AND_PREENTRY_INVALIDATION_ANCHORED_TO_BROKEN_LEVEL" in out["comparison_candidate_adjustments"]
     assert _rr(out) >= Decimal("1.5")
 
 
@@ -115,7 +116,9 @@ def test_short_breakout_geometry_is_symmetric():
     }
     out = repair_setup_geometry(setup, _features(atr="10", support="90", resistance="110"))
     stop = Decimal(str(out["stop_loss"]))
+    invalidation = Decimal(str(out["invalidation"]))
     assert stop == Decimal("95")
-    assert out["invalidation"] == Decimal("90")
+    assert invalidation == Decimal("92.5")
+    assert Decimal("90") < invalidation < stop
     assert stop > Decimal("89")
     assert _rr(out) >= Decimal("1.5")
