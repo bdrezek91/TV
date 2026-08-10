@@ -49,17 +49,24 @@ def policy_from_env() -> OrderbookRetentionPolicy:
     return policy
 
 
-async def _run_once(policy: OrderbookRetentionPolicy) -> None:
+async def _run_once(policy: OrderbookRetentionPolicy, max_batches_per_phase: int) -> None:
     async with session_scope() as session:
-        result = await run_orderbook_retention_once(session, policy)
+        result = await run_orderbook_retention_once(
+            session,
+            policy,
+            max_batches_per_phase=max_batches_per_phase,
+        )
     logger.info("orderbook retention pass: %s", json.dumps(result, default=str, separators=(",", ":")))
 
 
 async def main_async() -> None:
     policy = policy_from_env()
     interval = _env_int("ORDERBOOK_MAINTENANCE_INTERVAL_SECONDS", 21600)
+    max_batches_per_phase = _env_int("ORDERBOOK_RETENTION_MAX_BATCHES_PER_PASS", 20)
     if interval < 300:
         raise ValueError("ORDERBOOK_MAINTENANCE_INTERVAL_SECONDS must be >= 300")
+    if max_batches_per_phase < 1:
+        raise ValueError("ORDERBOOK_RETENTION_MAX_BATCHES_PER_PASS must be >= 1")
 
     stop_event = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -74,18 +81,19 @@ async def main_async() -> None:
             pass
 
     logger.info(
-        "starting orderbook maintenance enabled=%s high_res_days=%d archive_days=%d downsample_seconds=%d interval_seconds=%d",
+        "starting orderbook maintenance enabled=%s high_res_days=%d archive_days=%d downsample_seconds=%d interval_seconds=%d max_batches_per_phase=%d",
         policy.enabled,
         policy.high_res_days,
         policy.archive_days,
         policy.downsample_seconds,
         interval,
+        max_batches_per_phase,
     )
 
     try:
         while not stop_event.is_set():
             try:
-                await _run_once(policy)
+                await _run_once(policy, max_batches_per_phase)
             except Exception:
                 logger.exception("orderbook retention pass failed")
             try:
