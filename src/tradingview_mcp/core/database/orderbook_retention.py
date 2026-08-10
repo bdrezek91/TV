@@ -102,11 +102,17 @@ async def _delete_batches(
     *,
     max_batches: int | None = None,
 ) -> int:
+    """Delete in bounded transactions so live ingestion is not held hostage.
+
+    Each batch is committed independently. A maintenance crash therefore loses
+    at most the current batch and never rolls back already-completed cleanup.
+    """
     deleted = 0
     batches = 0
     while True:
         result = await session.execute(statement, params)
         batch_deleted = len(result.fetchall())
+        await session.commit()
         deleted += batch_deleted
         batches += 1
         if batch_deleted < int(params["batch_size"]):
