@@ -12,6 +12,18 @@ research comparison helpers plus the existing TradingView-context regression.
 This validates code-level invariants only; it is not a trading-performance
 result and does not replace the pending VPS historical smoke run.
 
+Implementation checkpoint on branch `agent/backtest-comparison-v1`:
+
+- point-in-time legacy and Research V2 generators: implemented;
+- fixed-risk common W5 execution adapter: implemented;
+- current-vs-fixed TradingView parser audit: implemented;
+- strict source-overlap validator: implemented/tested, runner wiring pending;
+- paired signal/matched-family classifier: implemented/tested, runner wiring pending;
+- W5 production quirk reproducers: implemented;
+- full portfolio/native-risk benchmark: pending;
+- extended 30/90-day Bybit data cache: pending;
+- Research V2 + TV historical shadow variant: pending.
+
 ## Variants
 
 - `LEGACY_AS_IS` — current legacy parser behaviour preserved.
