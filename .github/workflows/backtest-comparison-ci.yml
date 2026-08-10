@@ -12,6 +12,7 @@ on:
       - 'scripts/research/backtest_research_v2_candidate_v1.py'
       - 'scripts/research/backtest_research_v2_candidate_v2.py'
       - 'scripts/research/backtest_research_v2_candidate_v3_setup_isolation.py'
+      - 'scripts/research/backtest_research_v2_candidate_v4_mean_reversion_forensics.py'
       - 'scripts/research/diagnose_research_v2_cadence_v1.py'
       - 'scripts/research/render_backtest_comparison_report_v1.py'
       - 'tests/unit/trading/test_*comparison*v1.py'
@@ -63,5 +64,6 @@ jobs:
           python scripts/research/backtest_research_v2_candidate_v1.py --help >/dev/null
           python scripts/research/backtest_research_v2_candidate_v2.py --help >/dev/null
           python scripts/research/backtest_research_v2_candidate_v3_setup_isolation.py --help >/dev/null
+          python scripts/research/backtest_research_v2_candidate_v4_mean_reversion_forensics.py --help >/dev/null
           python scripts/research/diagnose_research_v2_cadence_v1.py --help >/dev/null
           python scripts/research/render_backtest_comparison_report_v1.py --help >/dev/null
