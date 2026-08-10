@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
-"""Lifecycle-aware Research V2 candidate replay over existing cache.
+"""Lifecycle-aware Research V2 candidate matrix over existing cache.
 
-Research only. No network, DB, paper-state or exchange writes.  Compared with
-candidate_v1 this runner fixes two evaluation problems discovered from the
-first real result:
-- the same symbol cannot submit another signal while an earlier simulated
-  order/position is still pending/open;
-- raw W5 terminal statuses/reasons are reported per setup so zero-fill families
-  (notably breakout) can be diagnosed instead of silently treated as no edge.
+Research only. No network, DB, paper-state or exchange writes.
 
-Each confirmation policy has its own lifecycle gate because skipping a NEUTRAL
-signal can legitimately free the symbol for a later WEAK/CONFIRMED signal.
+This runner compares two decision-time-only candidate repairs:
+- ALIGNED_TARGETS: stop/invalidation repair plus TP targets aligned to W4's
+  conservative worst-entry R contract;
+- SEMANTIC_WEIGHTED_RR: same W1 and stop/invalidation repairs, but preserves
+  each setup's natural targets and lets research W4 judge the weighted staged
+  target profile instead of TP1 alone.
+
+It also fixes a replay-methodology problem: the same symbol cannot submit a new
+signal while an earlier simulated order/position is still pending/open.  Raw
+independent-scan outcomes remain reported separately for diagnosis.
 """
 from __future__ import annotations
 
@@ -22,8 +24,11 @@ import statistics
 from collections import Counter, defaultdict
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
+from tradingview_mcp.core.backtest.comparison_candidate_semantic_v1 import (
+    build_research_v2_semantic_candidate_chain_indexed,
+)
 from tradingview_mcp.core.backtest.comparison_candidate_v1 import build_research_v2_candidate_chain_indexed
 from tradingview_mcp.core.backtest.comparison_execution_v1 import simulate_neutral_signal
 from tradingview_mcp.core.backtest.comparison_funnel_v1 import ResearchFunnelDiagnostics
@@ -40,6 +45,10 @@ SCHEDULES = {
     "CURRENT_DAYTIME_2H_07_21": tuple(DEFAULT_SCAN_HOURS),
     "FULL_24H_2H": tuple(range(0, 24, 2)),
     "FULL_24H_1H": tuple(range(0, 24)),
+}
+CANDIDATES: dict[str, Callable] = {
+    "ALIGNED_TARGETS": build_research_v2_candidate_chain_indexed,
+    "SEMANTIC_WEIGHTED_RR": build_research_v2_semantic_candidate_chain_indexed,
 }
 POLICY_ALLOWED = {
     "CURRENT_W4": {"CONFIRMED", "WEAK_CONFIRMATION", "NEUTRAL"},
@@ -106,14 +115,20 @@ def _rr_for_setup(setup: dict) -> float | None:
         return None
     worst = high if direction == "LONG" else low
     risk = abs(worst - stop)
-    return None if risk <= 0 else float(abs(target - worst) / risk)
+    if risk <= 0:
+        return None
+    reward = (target - worst) if direction == "LONG" else (worst - target)
+    return float(reward / risk)
 
 
 def _rr_summary(values: list[float]) -> dict[str, Any]:
     if not values:
         return {"count": 0}
-    return {"count": len(values), "min": min(values), "median": statistics.median(values), "max": max(values),
-            "gte_1_5": sum(v >= 1.5 for v in values), "lt_1_5": sum(v < 1.5 for v in values)}
+    return {
+        "count": len(values), "min": min(values), "median": statistics.median(values), "max": max(values),
+        "gte_1_5": sum(v >= 1.5 for v in values), "lt_1_5": sum(v < 1.5 for v in values),
+        "non_positive": sum(v <= 0 for v in values),
+    }
 
 
 def _terminal_detail(order: dict) -> str:
@@ -121,8 +136,8 @@ def _terminal_detail(order: dict) -> str:
     return str(hist[-1].get("detail") or "")[:220] if hist else ""
 
 
-def _run_schedule(name: str, hours: tuple[int, ...], requested: list[str], successful: dict,
-                  start: dt.datetime, end: dt.datetime) -> dict:
+def _run_schedule(candidate_name: str, builder: Callable, name: str, hours: tuple[int, ...],
+                  requested: list[str], successful: dict, start: dt.datetime, end: dt.datetime) -> dict:
     context_symbols = list(requested)
     if "BTCUSDT" not in context_symbols and "BTCUSDT" in successful:
         context_symbols = ["BTCUSDT"] + context_symbols
@@ -144,12 +159,12 @@ def _run_schedule(name: str, hours: tuple[int, ...], requested: list[str], succe
     terminal_status_by_setup: dict[str, Counter] = defaultdict(Counter)
     terminal_detail_by_setup: dict[str, Counter] = defaultdict(Counter)
     adjustment_counts = Counter(); rr_values: dict[str, list[float]] = defaultdict(list); w1_dq_adjusted = 0
+    weighted_gate_counts = Counter()
 
     for cutoff in cutoffs:
         btc_regime = None; chains = {}
         for symbol in context_symbols:
-            chain = build_research_v2_candidate_chain_indexed(symbol, indexes[symbol], cutoff,
-                btc_regime=btc_regime, previous_state=states[symbol])
+            chain = builder(symbol, indexes[symbol], cutoff, btc_regime=btc_regime, previous_state=states[symbol])
             states[symbol] = chain.get("_state"); chains[symbol] = chain
             if chain.get("w1_classification_data_quality", {}).get("comparison_confidence_adjustment"):
                 w1_dq_adjusted += 1
@@ -164,6 +179,9 @@ def _run_schedule(name: str, hours: tuple[int, ...], requested: list[str], succe
                     adjustment_counts[f"{setup_type}:{adj}"] += 1
                 rr = _rr_for_setup(setup)
                 if rr is not None: rr_values[setup_type].append(rr)
+                risk = (chain.get("risk_decisions") or {}).get(setup_type) or {}
+                if risk.get("comparison_rr_gate"):
+                    weighted_gate_counts[f"{setup_type}:{risk.get('comparison_rr_gate')}"] += 1
 
             for signal in neutral_signals_from_research(chain, approved_only=True):
                 future = _future_candles(candles[symbol], candle_times[symbol], cutoff)
@@ -183,11 +201,13 @@ def _run_schedule(name: str, hours: tuple[int, ...], requested: list[str], succe
                     if policy == "CURRENT_W4": lifecycle_current_by_setup[signal.setup_name].append(obs)
 
     return {
+        "candidate": candidate_name,
         "schedule": {"name": name, "local_hours_europe_warsaw": list(hours), "cutoffs_per_symbol": len(cutoffs),
                      "symbols": len(requested), "total_symbol_decision_points": len(cutoffs) * len(requested)},
         "funnel": funnel.to_dict(),
         "w1_confidence_debias_events_including_context": w1_dq_adjusted,
         "geometry_adjustments": dict(adjustment_counts.most_common()),
+        "weighted_rr_gate_uses": dict(weighted_gate_counts.most_common()),
         "tp1_rr_from_w4_worst_entry_by_setup": {k: _rr_summary(v) for k, v in sorted(rr_values.items())},
         "raw_independent_scan_outcomes": summarize_observations(raw_obs),
         "raw_independent_scan_outcomes_by_setup": {k: summarize_observations(v) for k, v in sorted(raw_by_setup.items())},
@@ -211,18 +231,33 @@ def main(args) -> dict:
     end = _dt(window["evaluation_end"]) - MIN_FUTURE_EXECUTION
     if args.start: start = max(start, _dt(args.start))
     if args.end: end = min(end, _dt(args.end))
+
     schedules = SCHEDULES
     if args.schedule:
         wanted = args.schedule.upper(); schedules = {wanted: SCHEDULES[wanted]}
-    results = {name: _run_schedule(name, hours, requested, successful, start, end) for name, hours in schedules.items()}
+    candidates = CANDIDATES
+    if args.candidate:
+        wanted_candidate = args.candidate.upper(); candidates = {wanted_candidate: CANDIDATES[wanted_candidate]}
+
+    results = {
+        candidate_name: {
+            schedule_name: _run_schedule(candidate_name, builder, schedule_name, hours, requested, successful, start, end)
+            for schedule_name, hours in schedules.items()
+        }
+        for candidate_name, builder in candidates.items()
+    }
     payload = {
-        "research_contract": "BACKTEST_COMPARISON_V1", "candidate_kind": "RESEARCH_V2_CONTRACT_REPAIRED_V2_LIFECYCLE",
+        "research_contract": "BACKTEST_COMPARISON_V1",
+        "candidate_kind": "RESEARCH_V2_CANDIDATE_MATRIX_V2_LIFECYCLE",
         "status": "RESEARCH_ONLY_NOT_PROMOTED", "read_only": True,
         "evaluation_window": {"start": start, "end": end}, "requested_symbols": requested, "results": results,
-        "guards": ["baseline Research V2 is immutable", "no historical orderbook/liquidation values are fabricated",
-                   "W3 thresholds are unchanged", "geometry uses decision-time data only",
-                   "raw independent-scan counts are separated from lifecycle-aware counts",
-                   "more trades are not evidence of better edge"]}
+        "guards": [
+            "baseline Research V2 is immutable", "no historical orderbook/liquidation values are fabricated",
+            "W3 thresholds are unchanged", "all repairs use decision-time data only",
+            "raw independent-scan counts are separated from lifecycle-aware counts",
+            "semantic candidate preserves original setup targets and only changes the research R:R gate",
+            "more trades are not evidence of better edge",
+        ]}
     out_dir = cache_root.parent if cache_root.name == "cache" else cache_root
     write_json_cache(out_dir / "research_v2_candidate_v2_lifecycle.json", payload); return payload
 
@@ -230,7 +265,9 @@ def main(args) -> dict:
 def parse_args():
     p = argparse.ArgumentParser(); p.add_argument("--cache-root", default=str(DEFAULT_CACHE_ROOT))
     p.add_argument("--symbols"); p.add_argument("--start"); p.add_argument("--end")
-    p.add_argument("--schedule", choices=sorted(SCHEDULES)); return p.parse_args()
+    p.add_argument("--schedule", choices=sorted(SCHEDULES))
+    p.add_argument("--candidate", choices=sorted(CANDIDATES))
+    return p.parse_args()
 
 
 if __name__ == "__main__":
