@@ -9,6 +9,7 @@ on:
       - 'scripts/research/backtest_comparison_guarded_v1.py'
       - 'scripts/research/backfill_extended_history_v1.py'
       - 'scripts/research/backtest_comparison_extended_v1.py'
+      - 'scripts/research/render_backtest_comparison_report_v1.py'
       - 'tests/unit/trading/test_*comparison*v1.py'
       - 'tests/unit/trading/test_extended_history*.py'
       - 'tests/unit/trading/test_tv_shadow_v1.py'
@@ -38,6 +39,7 @@ jobs:
             tests/unit/trading/test_comparison_history_v1.py \
             tests/unit/trading/test_comparison_history_index_v1.py \
             tests/unit/trading/test_comparison_diagnostics_v1.py \
+            tests/unit/trading/test_comparison_report_v1.py \
             tests/unit/trading/test_w5_comparison_diagnostics_v1.py \
             tests/unit/trading/test_extended_history_v1.py \
             tests/unit/trading/test_extended_history_downloader_v1.py \
@@ -50,3 +52,4 @@ jobs:
           python scripts/research/backtest_comparison_guarded_v1.py --help >/dev/null
           python scripts/research/backfill_extended_history_v1.py --help >/dev/null
           python scripts/research/backtest_comparison_extended_v1.py --help >/dev/null
+          python scripts/research/render_backtest_comparison_report_v1.py --help >/dev/null
