@@ -72,14 +72,27 @@ async def _coverage_for_symbol(session, symbol: str) -> dict[str, Any]:
 
 
 def _intersection(spans: list[dict[str, Any]]) -> dict[str, Any]:
-    valid = [s for s in spans if s.get("earliest") and s.get("latest")]
-    if not valid:
-        return {"earliest": None, "latest": None, "hours": 0.0}
-    starts = [dt.datetime.fromisoformat(s["earliest"]) for s in valid]
-    ends = [dt.datetime.fromisoformat(s["latest"]) for s in valid]
+    """Strict overlap: every required source must be present.
+
+    Missing orderbook/liquidations/etc. must never be silently ignored, because
+    that would make an incomplete replay window look fully supported.
+    """
+    missing = [i for i, s in enumerate(spans) if not s.get("earliest") or not s.get("latest")]
+    if missing:
+        return {"earliest": None, "latest": None, "hours": 0.0, "complete": False, "missing_source_indexes": missing}
+    starts = [dt.datetime.fromisoformat(s["earliest"]) for s in spans]
+    ends = [dt.datetime.fromisoformat(s["latest"]) for s in spans]
     start, end = max(starts), min(ends)
-    hours = max(0.0, (end - start).total_seconds() / 3600)
-    return {"earliest": start.isoformat(), "latest": end.isoformat(), "hours": round(hours, 3)} if end >= start else {"earliest": None, "latest": None, "hours": 0.0}
+    if end < start:
+        return {"earliest": None, "latest": None, "hours": 0.0, "complete": False, "missing_source_indexes": []}
+    hours = (end - start).total_seconds() / 3600
+    return {
+        "earliest": start.isoformat(),
+        "latest": end.isoformat(),
+        "hours": round(hours, 3),
+        "complete": True,
+        "missing_source_indexes": [],
+    }
 
 
 async def cmd_coverage() -> dict[str, Any]:
@@ -89,11 +102,12 @@ async def cmd_coverage() -> dict[str, Any]:
         for symbol in settings.symbols:
             results[symbol] = await _coverage_for_symbol(session, symbol)
 
+    required_names = ["4h", "1h", "15m", "trades_1m", "liquidations_1m", "orderbook", "derivatives"]
     for symbol, sources in results.items():
-        sources["full_source_overlap"] = _intersection([
-            sources["4h"], sources["1h"], sources["15m"], sources["trades_1m"],
-            sources["liquidations_1m"], sources["orderbook"], sources["derivatives"],
-        ])
+        overlap = _intersection([sources[name] for name in required_names])
+        overlap["required_sources"] = required_names
+        overlap["missing_sources"] = [required_names[i] for i in overlap.pop("missing_source_indexes")]
+        sources["full_source_overlap"] = overlap
 
     payload = {
         "research_contract": "BACKTEST_COMPARISON_V1",
