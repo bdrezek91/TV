@@ -34,6 +34,7 @@ x-trading-env: &trading-env
   ORDERBOOK_ARCHIVE_RETENTION_DAYS: ${ORDERBOOK_ARCHIVE_RETENTION_DAYS:-180}
   ORDERBOOK_DOWNSAMPLE_SECONDS: ${ORDERBOOK_DOWNSAMPLE_SECONDS:-60}
   ORDERBOOK_RETENTION_BATCH_SIZE: ${ORDERBOOK_RETENTION_BATCH_SIZE:-5000}
+  ORDERBOOK_RETENTION_MAX_BATCHES_PER_PASS: ${ORDERBOOK_RETENTION_MAX_BATCHES_PER_PASS:-20}
   ORDERBOOK_MAINTENANCE_INTERVAL_SECONDS: ${ORDERBOOK_MAINTENANCE_INTERVAL_SECONDS:-21600}
   PAPER_STARTING_BALANCE: ${PAPER_STARTING_BALANCE:-10000}
   RISK_PER_TRADE_PCT: ${RISK_PER_TRADE_PCT:-0.25}
@@ -156,6 +157,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    # The base image checks HTTP :8000, but this process is a background
+    # maintenance worker and intentionally exposes no HTTP server.
+    healthcheck:
+      disable: true
     stop_grace_period: 30s
     logging: *default-logging
     networks:
