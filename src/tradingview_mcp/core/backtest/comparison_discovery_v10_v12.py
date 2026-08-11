@@ -51,8 +51,8 @@ V11_MAX_STOP_ATR = Decimal("1.25")
 V11_ALLOWED_REGIMES = {"RANGE", "NO_EDGE", "SQUEEZE", "TREND_UP", "TREND_DOWN"}
 
 # V12: volume-weighted time-series momentum.
-V12_RECENT_15M_CANDLES = 8
-V12_BASELINE_15M_CANDLES = 8
+V12_RECENT_15M_CANDLES = 8          # 2h
+V12_BASELINE_15M_CANDLES = 8        # preceding 2h
 V12_MIN_VOLUME_EXPANSION = Decimal("1.20")
 V12_MOVE_MIN_ATR = Decimal("0.50")
 V12_MOVE_MAX_ATR = Decimal("2.50")
@@ -368,27 +368,27 @@ def detect_volume_weighted_tsmom(chain: Mapping[str, Any]) -> dict[str, Any]:
     name = "volume_weighted_tsmom"
     regime = str((chain.get("regime") or {}).get("primary_regime") or "UNKNOWN")
     if regime not in V12_ALLOWED_REGIMES:
-        return _no_setup(name, f"regime {regime} outside V12 scope", regime=regime, price_only=True)
+        return _no_setup(name, f"regime {regime} outside V12 scope", regime=regime, price_only=False)
 
     windows = chain.get("_windows")
     c15 = list(getattr(windows, "candles_15m", []) or []) if windows is not None else []
     c1h = list(getattr(windows, "candles_1h", []) or []) if windows is not None else []
     required_15m = V12_RECENT_15M_CANDLES + V12_BASELINE_15M_CANDLES
     if len(c15) < required_15m or len(c1h) < 5:
-        return _no_setup(name, "insufficient closed 15m/1h history for V12", regime=regime, price_only=True)
+        return _no_setup(name, "insufficient closed 15m/1h history for V12", regime=regime, price_only=False)
     atr = _atr(chain)
     if atr is None or atr <= 0:
-        return _no_setup(name, "1h ATR unavailable", regime=regime, price_only=True)
+        return _no_setup(name, "1h ATR unavailable", regime=regime, price_only=False)
 
     baseline = c15[-required_15m:-V12_RECENT_15M_CANDLES]
     recent = c15[-V12_RECENT_15M_CANDLES:]
     baseline_vol = sum((_d(c.get("volume")) or Decimal("0") for c in baseline), Decimal("0"))
     recent_vol = sum((_d(c.get("volume")) or Decimal("0") for c in recent), Decimal("0"))
     if baseline_vol <= 0 or recent_vol <= 0:
-        return _no_setup(name, "15m candle volume unavailable for V12", regime=regime, price_only=True)
+        return _no_setup(name, "15m candle volume unavailable for V12", regime=regime, price_only=False)
     volume_expansion = recent_vol / baseline_vol
     if volume_expansion < V12_MIN_VOLUME_EXPANSION:
-        return _no_setup(name, "recent 2h volume does not exceed prior 2h baseline", regime=regime, price_only=True)
+        return _no_setup(name, "recent 2h volume does not exceed prior 2h baseline", regime=regime, price_only=False)
 
     closes = [_d(c.get("close")) for c in recent]
     opens = [_d(c.get("open")) for c in recent]
@@ -396,35 +396,37 @@ def detect_volume_weighted_tsmom(chain: Mapping[str, Any]) -> dict[str, Any]:
     lows = [_d(c.get("low")) for c in recent]
     vols = [_d(c.get("volume")) for c in recent]
     if any(v is None for v in closes + opens + highs + lows + vols):
-        return _no_setup(name, "incomplete V12 OHLCV candles", regime=regime, price_only=True)
+        return _no_setup(name, "incomplete V12 OHLCV candles", regime=regime, price_only=False)
 
     first_open, last_close = opens[0], closes[-1]
     move = last_close - first_open
     move_atr = abs(move) / atr
     if move_atr < V12_MOVE_MIN_ATR or move_atr > V12_MOVE_MAX_ATR:
-        return _no_setup(name, f"V12 two-hour move {move_atr:.3f} ATR outside pre-registered band", regime=regime, price_only=True)
+        return _no_setup(name, f"V12 two-hour move {move_atr:.3f} ATR outside pre-registered band", regime=regime, price_only=False)
     direction = "LONG" if move > 0 else "SHORT"
     sign = Decimal("1") if direction == "LONG" else Decimal("-1")
 
     directional = sum(1 for o, c in zip(opens, closes) if (c > o if direction == "LONG" else c < o))
     if directional < V12_MIN_DIRECTIONAL_CANDLES:
-        return _no_setup(name, "too few 15m candles align with V12 direction", regime=regime, price_only=True)
+        return _no_setup(name, "too few 15m candles align with V12 direction", regime=regime, price_only=False)
 
+    # Volume-weighted signed return across the eight 15m candles. Candle i uses
+    # its own open->close return, weighted by its share of recent 2h volume.
     weighted_return = Decimal("0")
     for o, c, v in zip(opens, closes, vols):
         if o == 0:
             continue
         weighted_return += ((c - o) / o) * (v / recent_vol)
     if weighted_return * sign <= 0:
-        return _no_setup(name, "volume-weighted 15m returns disagree with V12 direction", regime=regime, price_only=True)
+        return _no_setup(name, "volume-weighted 15m returns disagree with V12 direction", regime=regime, price_only=False)
 
     h1_start = _d(c1h[-5].get("close"))
     h1_end = _d(c1h[-1].get("close"))
     if h1_start is None or h1_end is None or h1_start == 0:
-        return _no_setup(name, "4h time-series momentum unavailable", regime=regime, price_only=True)
+        return _no_setup(name, "4h time-series momentum unavailable", regime=regime, price_only=False)
     momentum_4h = _signed_return(h1_start, h1_end)
     if momentum_4h * sign <= 0:
-        return _no_setup(name, "4h time-series momentum disagrees with recent 2h direction", regime=regime, price_only=True)
+        return _no_setup(name, "4h time-series momentum disagrees with recent 2h direction", regime=regime, price_only=False)
 
     geom = _geometry(
         direction, last_close, atr, min(lows), max(highs),
@@ -434,7 +436,7 @@ def detect_volume_weighted_tsmom(chain: Mapping[str, Any]) -> dict[str, Any]:
         max_stop_atr=V12_MAX_STOP_ATR,
     )
     if geom is None:
-        return _no_setup(name, "V12 stop geometry exceeds pre-registered ATR budget", regime=regime, price_only=True)
+        return _no_setup(name, "V12 stop geometry exceeds pre-registered ATR budget", regime=regime, price_only=False)
 
     return {
         "setup_type": name,
@@ -449,7 +451,7 @@ def detect_volume_weighted_tsmom(chain: Mapping[str, Any]) -> dict[str, Any]:
         ],
         "counterarguments": [],
         "regime_compatible": True,
-        "price_only_mode": True,
+        "price_only_mode": False,
         "orderflow_confirmed": False,
         "volume_expansion": volume_expansion,
         "weighted_return": weighted_return,
