@@ -154,7 +154,7 @@ def detect_momentum_continuation_setup(chain: Mapping[str, Any]) -> dict[str, An
         ],
         "counterarguments": [],
         "regime_compatible": True,
-        "price_only_mode": False,
+        "price_only_mode": True,
         "orderflow_confirmed": False,
         "impulse_move_atr": move_atr,
         "impulse_close_location": close_location,
