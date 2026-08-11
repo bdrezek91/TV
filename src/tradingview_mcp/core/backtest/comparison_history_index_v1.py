@@ -60,6 +60,19 @@ class HistoricalWindowIndex:
         self.ob = _IndexedSeries.point(data.orderbook, "source_timestamp")
         self.deriv = _IndexedSeries.point(data.derivatives, "source_timestamp")
 
+    def trailing_trades(self, cutoff: dt.datetime, minutes: int) -> list[dict]:
+        """Return an isolated longer trade window without changing W1/W3 inputs.
+
+        The standard Research V2 feature build intentionally consumes only the
+        last 30 one-minute trade buckets. Research detectors such as CVD
+        divergence may require a longer thesis window; exposing it separately
+        prevents those experiments from silently changing the base feature
+        engine or W3 confirmation contract.
+        """
+        if minutes < 1:
+            raise ValueError("minutes must be >= 1")
+        return self.trades.trailing(cutoff, minutes)
+
     def windows(self, cutoff: dt.datetime, *, include_execution_1m: bool = False) -> PointInTimeWindows:
         liq_series = self.liq.trailing(cutoff, 15)
         return PointInTimeWindows(
@@ -146,4 +159,5 @@ def build_research_v2_chain_indexed(
         "features": built,
         "_state": state,
         "_windows": w,
+        "_cvd_trades_1m": index.trailing_trades(cutoff, 360),
     }
