@@ -33,6 +33,7 @@ def test_detects_long_impulse_hold_without_future_data() -> None:
     assert setup["setup_type"] == "momentum_continuation"
     assert setup["stop_loss"] < setup["entry_zone"]["low"]
     assert len(setup["targets"]) == 3
+    assert setup["price_only_mode"] is True
 
 
 def test_rejects_weak_one_hour_move() -> None:
