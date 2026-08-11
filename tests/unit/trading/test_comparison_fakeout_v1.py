@@ -54,6 +54,7 @@ def test_upper_sweep_reclaim_creates_short() -> None:
     assert setup["reference_resistance"] == Decimal("110")
     assert setup["stop_loss"] > setup["entry_zone"]["high"]
     assert setup["targets"][0] < setup["entry_zone"]["low"]
+    assert setup["price_only_mode"] is True
 
 
 def test_lower_sweep_reclaim_creates_long() -> None:
@@ -62,6 +63,7 @@ def test_lower_sweep_reclaim_creates_long() -> None:
     assert setup["reference_support"] == Decimal("90")
     assert setup["stop_loss"] < setup["entry_zone"]["low"]
     assert setup["targets"][0] > setup["entry_zone"]["high"]
+    assert setup["price_only_mode"] is True
 
 
 def test_no_sweep_is_no_setup() -> None:
