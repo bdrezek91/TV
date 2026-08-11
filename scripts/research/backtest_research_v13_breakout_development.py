@@ -16,7 +16,11 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
-from tradingview_mcp.core.backtest.comparison_breakout_v13 import V13_NAME, evaluate_breakout_v13
+from tradingview_mcp.core.backtest.comparison_breakout_v13 import (
+    V13_NAME,
+    evaluate_breakout_v13,
+    validate_v13_development_cache_root,
+)
 from tradingview_mcp.core.backtest.comparison_candidate_v1 import build_research_v2_candidate_chain_indexed
 from tradingview_mcp.core.backtest.comparison_execution_v1 import simulate_neutral_signal
 from tradingview_mcp.core.backtest.comparison_history_index_v1 import HistoricalWindowIndex
@@ -28,7 +32,6 @@ from tradingview_mcp.core.backtest.extended_history_v1 import DEFAULT_CACHE_ROOT
 
 UTC = dt.timezone.utc
 MIN_FUTURE_EXECUTION = dt.timedelta(hours=12)
-RESERVED_HOLDOUT_MARKER = "holdout_mrv2_120d"
 SCHEDULES = {
     "CURRENT_DAYTIME_2H_07_21": tuple(DEFAULT_SCAN_HOURS),
     "FULL_24H_2H": tuple(range(0, 24, 2)),
@@ -36,13 +39,6 @@ SCHEDULES = {
 }
 SYMBOL_ORDER = {symbol: index for index, symbol in enumerate(REQUIRED_SYMBOLS)}
 DEFAULT_OUTPUT_NAME = "research_v13_breakout_development.json"
-
-
-def validate_development_cache_root(cache_root: Path) -> Path:
-    resolved = cache_root.resolve()
-    if RESERVED_HOLDOUT_MARKER in str(resolved).lower():
-        raise ValueError("V13 development runner refuses the reserved 120d holdout cache")
-    return resolved
 
 
 def _dt(value: Any) -> dt.datetime:
@@ -162,7 +158,7 @@ def _run_schedule(name: str, hours: tuple[int, ...], successful: dict[str, Any],
 
 
 def main(args: argparse.Namespace) -> dict[str, Any]:
-    cache_root = validate_development_cache_root(Path(args.cache_root))
+    cache_root = validate_v13_development_cache_root(Path(args.cache_root))
     summary = json.loads((cache_root / "backfill_summary.json").read_text(encoding="utf-8"))
     successful = {
         symbol: (summary.get("results") or {}).get(symbol)
