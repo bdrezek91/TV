@@ -68,6 +68,19 @@ def test_ratio_checks_sum_and_derived_ratio() -> None:
     assert bad["value_failures"] == 1
 
 
+def test_funding_validation_does_not_assume_fixed_interval() -> None:
+    start = dt.datetime(2026, 8, 1, 0, 0, tzinfo=UTC)
+    end = start + dt.timedelta(hours=20)
+    rows = [
+        {"source_timestamp": start.isoformat(), "funding_rate": "0.0001"},
+        {"source_timestamp": (start + dt.timedelta(hours=4)).isoformat(), "funding_rate": "0.0002"},
+        {"source_timestamp": (start + dt.timedelta(hours=12)).isoformat(), "funding_rate": "-0.0001"},
+    ]
+    result = mod.validate_funding(rows, start=start, end=end)
+    assert result["passed"] is True
+    assert "not hard-coded" in result["note"]
+
+
 def test_public_trade_volume_is_cross_checked_against_independent_1m_kline(tmp_path: Path) -> None:
     start = dt.datetime(2026, 8, 1, 0, 0, tzinfo=UTC)
     end = start + dt.timedelta(minutes=1, seconds=59)
@@ -99,6 +112,19 @@ def test_public_trade_volume_is_cross_checked_against_independent_1m_kline(tmp_p
     )
     assert bad["passed"] is False
     assert bad["mismatches"] == 1
+
+
+def test_public_trade_validation_fails_when_expected_day_is_absent(tmp_path: Path) -> None:
+    start = dt.datetime(2026, 8, 1, 0, 0, tzinfo=UTC)
+    end = start + dt.timedelta(minutes=59, seconds=59)
+    _write_rows(tmp_path / "kline_1m.json", [_candle(start + dt.timedelta(minutes=i), volume="0") for i in range(60)])
+    (tmp_path / "trades_1m_daily").mkdir()
+
+    result = mod.validate_trade_volume_against_kline(
+        tmp_path, start=start, end=end, rel_tolerance=Decimal("0.000001")
+    )
+    assert result["passed"] is False
+    assert result["absent_days"] == ["2026-08-01"]
 
 
 def test_raw_response_comparison_does_not_reuse_research_parser() -> None:
