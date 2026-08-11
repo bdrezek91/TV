@@ -154,7 +154,7 @@ def detect_failed_breakout_setup(chain: Mapping[str, Any]) -> dict[str, Any]:
         ],
         "counterarguments": [],
         "regime_compatible": True,
-        "price_only_mode": False,
+        "price_only_mode": True,
         "orderflow_confirmed": False,
         "reference_level": level,
         "sweep_extreme": extreme,
