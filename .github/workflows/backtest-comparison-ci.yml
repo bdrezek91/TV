@@ -21,6 +21,7 @@ on:
       - 'scripts/research/backtest_research_v2_candidate_v7_cvd_divergence.py'
       - 'scripts/research/backtest_research_v2_candidate_v8_vwap_reversion.py'
       - 'scripts/research/backtest_research_v2_candidate_v9_volatility_expansion.py'
+      - 'scripts/research/validate_extended_cache_no_lookahead.py'
       - 'scripts/research/diagnose_research_v2_cadence_v1.py'
       - 'scripts/research/render_backtest_comparison_report_v1.py'
       - 'tests/unit/trading/test_*comparison*v1.py'
@@ -85,6 +86,7 @@ jobs:
           python scripts/research/backtest_research_v2_candidate_v7_cvd_divergence.py --help >/dev/null
           python scripts/research/backtest_research_v2_candidate_v8_vwap_reversion.py --help >/dev/null
           python scripts/research/backtest_research_v2_candidate_v9_volatility_expansion.py --help >/dev/null
+          python scripts/research/validate_extended_cache_no_lookahead.py --help >/dev/null
           python scripts/research/diagnose_research_v2_cadence_v1.py --help >/dev/null
           python scripts/research/render_backtest_comparison_report_v1.py --help >/dev/null
           python -c 'from tradingview_mcp.workers.orderbook_maintenance_main import policy_from_env; policy_from_env()'
