@@ -280,4 +280,5 @@ def build_research_v2_candidate_chain_indexed(
         "features": built,
         "_state": state,
         "_windows": w,
+        "_cvd_trades_1m": index.trailing_trades(cutoff, 360),
     }
