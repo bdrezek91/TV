@@ -26,7 +26,12 @@ def _d(v: Any) -> Optional[Decimal]:
     return v if isinstance(v, Decimal) else Decimal(str(v))
 
 
-def _no_setup(reason: str, regime: str | None = None) -> dict[str, Any]:
+def _no_setup(
+    reason: str,
+    regime: str | None = None,
+    allowed_regimes: Optional[set[str]] = None,
+) -> dict[str, Any]:
+    regime_scope = ALLOWED_REGIMES if allowed_regimes is None else allowed_regimes
     return {
         "setup_type": "volatility_expansion",
         "direction": "NO_SETUP",
@@ -37,25 +42,30 @@ def _no_setup(reason: str, regime: str | None = None) -> dict[str, Any]:
         "confidence": 0.0,
         "reasons": [reason],
         "counterarguments": [],
-        "regime_compatible": regime in ALLOWED_REGIMES if regime else False,
+        "regime_compatible": regime in regime_scope if regime else False,
         "price_only_mode": True,
         "orderflow_confirmed": False,
     }
 
 
-def detect_volatility_expansion_setup(chain: Mapping[str, Any]) -> dict[str, Any]:
+def detect_volatility_expansion_setup(
+    chain: Mapping[str, Any],
+    *,
+    allowed_regimes: Optional[set[str]] = None,
+) -> dict[str, Any]:
+    regime_scope = ALLOWED_REGIMES if allowed_regimes is None else allowed_regimes
     regime = str((chain.get("regime") or {}).get("primary_regime") or "UNKNOWN")
-    if regime not in ALLOWED_REGIMES:
-        return _no_setup(f"regime {regime} outside volatility-expansion scope", regime)
+    if regime not in regime_scope:
+        return _no_setup(f"regime {regime} outside volatility-expansion scope", regime, regime_scope)
 
     windows = chain.get("_windows")
     candles = list(getattr(windows, "candles_15m", []) or []) if windows is not None else []
     if len(candles) < HISTORY_LOOKBACK_15M + 1:
-        return _no_setup("insufficient 15m history for equal pre-compression/compression windows", regime)
+        return _no_setup("insufficient 15m history for equal pre-compression/compression windows", regime, regime_scope)
 
     atr = _d(((((chain.get("features") or {}).get("tf") or {}).get("1h") or {}).get("atr")))
     if atr is None or atr <= 0:
-        return _no_setup("1h ATR unavailable", regime)
+        return _no_setup("1h ATR unavailable", regime, regime_scope)
 
     # Compare equal-length windows. V1 accidentally compared a 16-candle
     # recent range with only four older candles, making the compression test
@@ -70,22 +80,22 @@ def detect_volatility_expansion_setup(chain: Mapping[str, Any]) -> dict[str, Any
     older_highs = [_d(c.get("high")) for c in older]
     older_lows = [_d(c.get("low")) for c in older]
     if any(v is None for v in recent_highs + recent_lows + older_highs + older_lows):
-        return _no_setup("invalid candle history", regime)
+        return _no_setup("invalid candle history", regime, regime_scope)
 
     range_now = max(recent_highs) - min(recent_lows)
     older_range = max(older_highs) - min(older_lows)
     if older_range <= 0 or range_now > older_range * RANGE_COMPRESSION_RATIO:
-        return _no_setup("no clear pre-breakout range compression", regime)
+        return _no_setup("no clear pre-breakout range compression", regime, regime_scope)
 
     resistance = max(recent_highs)
     support = min(recent_lows)
     o, h, l, c = [_d(trigger.get(k)) for k in ("open", "high", "low", "close")]
     if None in (o, h, l, c):
-        return _no_setup("trigger candle incomplete", regime)
+        return _no_setup("trigger candle incomplete", regime, regime_scope)
 
     body = abs(c - o)
     if body < atr * MIN_BODY_ATR:
-        return _no_setup("trigger body too small for volatility expansion", regime)
+        return _no_setup("trigger body too small for volatility expansion", regime, regime_scope)
 
     if c > resistance + atr * BREAKOUT_BUFFER_ATR:
         direction = "LONG"
@@ -106,10 +116,10 @@ def detect_volatility_expansion_setup(chain: Mapping[str, Any]) -> dict[str, Any
         risk = stop - worst
         targets = [worst - risk * m for m in TARGET_R_MULTIPLIERS]
     else:
-        return _no_setup("compressed range has not broken with a decisive close", regime)
+        return _no_setup("compressed range has not broken with a decisive close", regime, regime_scope)
 
     if risk <= 0:
-        return _no_setup("non-positive risk geometry", regime)
+        return _no_setup("non-positive risk geometry", regime, regime_scope)
 
     return {
         "setup_type": "volatility_expansion",
@@ -135,8 +145,13 @@ def detect_volatility_expansion_setup(chain: Mapping[str, Any]) -> dict[str, Any
     }
 
 
-def evaluate_volatility_expansion(chain: Mapping[str, Any], *, btc_regime: str | None = None) -> dict[str, Any]:
-    setup = detect_volatility_expansion_setup(chain)
+def evaluate_volatility_expansion(
+    chain: Mapping[str, Any],
+    *,
+    btc_regime: str | None = None,
+    allowed_regimes: Optional[set[str]] = None,
+) -> dict[str, Any]:
+    setup = detect_volatility_expansion_setup(chain, allowed_regimes=allowed_regimes)
     if setup.get("direction") not in {"LONG", "SHORT"}:
         return {"setup": setup, "confirmation": None, "risk": None, "signal": None}
 
