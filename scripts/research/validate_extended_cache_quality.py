@@ -6,7 +6,8 @@ present, but internally consistent:
 - kline timestamps are unique, aligned and continuous at the advertised cadence;
 - 1m OHLCV aggregates reproduce cached 15m OHLCV;
 - mark/index price klines are continuous on a 5m grid;
-- OI and long/short ratio observations are unique and monotonic on the 5m grid;
+- OI and long/short ratio observations are unique and continuous on the 5m grid;
+- funding timestamps are unique and strictly increasing without assuming a fixed interval;
 - reconstructed derivative timestamps are a subset of cached OI timestamps;
 - public-trade 1m taker volume reconciles to trade-price 1m kline volume.
 
@@ -26,7 +27,7 @@ from typing import Any, Iterable
 from tradingview_mcp.core.backtest.extended_history_v1 import DEFAULT_CACHE_ROOT, utc_dates
 
 UTC = dt.timezone.utc
-VALIDATOR_VERSION = "EXTENDED_CACHE_QUALITY_V1"
+VALIDATOR_VERSION = "EXTENDED_CACHE_QUALITY_V2"
 REL_TOL = Decimal("0.000001")  # 1 ppm, only for source rounding noise
 ABS_TOL = Decimal("0.00000001")
 MAX_EXAMPLES = 10
@@ -68,25 +69,42 @@ def _grid_diagnostics(rows: Iterable[dict[str, Any]], *, field: str, seconds: in
     duplicates = len(timestamps) - len(set(timestamps))
     off_grid = [ts.isoformat() for ts in timestamps if int(ts.timestamp()) % seconds != 0]
     gaps: list[dict[str, Any]] = []
+    gap_count = 0
     for prev, cur in zip(timestamps, timestamps[1:]):
         delta = int((cur - prev).total_seconds())
         if delta != seconds:
-            gaps.append({"from": prev.isoformat(), "to": cur.isoformat(), "seconds": delta})
+            gap_count += 1
+            if len(gaps) < MAX_EXAMPLES:
+                gaps.append({"from": prev.isoformat(), "to": cur.isoformat(), "seconds": delta})
     return {
         "name": name,
         "rows": len(timestamps),
         "duplicates": duplicates,
         "off_grid": off_grid[:MAX_EXAMPLES],
         "off_grid_count": len(off_grid),
-        "gaps": gaps[:MAX_EXAMPLES],
-        "gap_count": len(gaps),
-        "passed": duplicates == 0 and not off_grid and not gaps,
+        "gaps": gaps,
+        "gap_count": gap_count,
+        "passed": bool(timestamps) and duplicates == 0 and not off_grid and gap_count == 0,
+    }
+
+
+def _sequence_diagnostics(rows: Iterable[dict[str, Any]], *, field: str, name: str) -> dict[str, Any]:
+    timestamps = [_dt(row[field]) for row in rows]
+    duplicates = len(timestamps) - len(set(timestamps))
+    ordered = all(cur > prev for prev, cur in zip(timestamps, timestamps[1:]))
+    return {
+        "name": name,
+        "rows": len(timestamps),
+        "duplicates": duplicates,
+        "strictly_increasing": ordered,
+        "passed": bool(timestamps) and duplicates == 0 and ordered,
     }
 
 
 def _aggregate_1m_to_15m(c1m: list[dict[str, Any]], c15: list[dict[str, Any]]) -> dict[str, Any]:
     one = {_dt(row["open_time"]): row for row in c1m}
     mismatches: list[dict[str, Any]] = []
+    mismatch_count = 0
     compared = 0
     incomplete = 0
     for bar in c15:
@@ -106,19 +124,21 @@ def _aggregate_1m_to_15m(c1m: list[dict[str, Any]], c15: list[dict[str, Any]]) -
         }
         actual = {key: _d(bar[key]) for key in expected}
         bad = [key for key in expected if not _close(actual[key], expected[key])]
-        if bad and len(mismatches) < MAX_EXAMPLES:
-            mismatches.append({
-                "open_time": start.isoformat(),
-                "fields": bad,
-                "expected": {k: str(expected[k]) for k in bad},
-                "actual": {k: str(actual[k]) for k in bad},
-            })
+        if bad:
+            mismatch_count += 1
+            if len(mismatches) < MAX_EXAMPLES:
+                mismatches.append({
+                    "open_time": start.isoformat(),
+                    "fields": bad,
+                    "expected": {k: str(expected[k]) for k in bad},
+                    "actual": {k: str(actual[k]) for k in bad},
+                })
     return {
         "compared_complete_15m_bars": compared,
         "incomplete_15m_bars_skipped": incomplete,
-        "mismatch_count": len(mismatches),
+        "mismatch_count": mismatch_count,
         "mismatches": mismatches,
-        "passed": compared > 0 and not mismatches,
+        "passed": compared > 0 and mismatch_count == 0,
     }
 
 
@@ -152,21 +172,23 @@ def _trade_volume_reconciliation(c1m: list[dict[str, Any]], trades: list[dict[st
         taker[ts] += _d(row.get("buy_taker_volume", "0")) + _d(row.get("sell_taker_volume", "0"))
 
     mismatches: list[dict[str, Any]] = []
+    mismatch_count = 0
     compared = 0
-    # Compare only timestamps represented by the public-trade archive; missing
-    # positive-volume candle buckets are counted separately below.
     for ts, trade_volume in taker.items():
         if ts not in candle:
+            mismatch_count += 1
             if len(mismatches) < MAX_EXAMPLES:
                 mismatches.append({"bucket_start": ts.isoformat(), "error": "trade bucket absent from kline_1m"})
             continue
         compared += 1
-        if not _close(trade_volume, candle[ts]) and len(mismatches) < MAX_EXAMPLES:
-            mismatches.append({
-                "bucket_start": ts.isoformat(),
-                "trade_volume": str(trade_volume),
-                "kline_volume": str(candle[ts]),
-            })
+        if not _close(trade_volume, candle[ts]):
+            mismatch_count += 1
+            if len(mismatches) < MAX_EXAMPLES:
+                mismatches.append({
+                    "bucket_start": ts.isoformat(),
+                    "trade_volume": str(trade_volume),
+                    "kline_volume": str(candle[ts]),
+                })
 
     if taker:
         first_trade, last_trade = min(taker), max(taker)
@@ -183,9 +205,9 @@ def _trade_volume_reconciliation(c1m: list[dict[str, Any]], trades: list[dict[st
         "duplicate_trade_buckets": duplicates,
         "missing_positive_volume_buckets": len(missing_positive),
         "missing_positive_examples": [ts.isoformat() for ts in sorted(missing_positive)[:MAX_EXAMPLES]],
-        "mismatch_count": len(mismatches),
+        "mismatch_count": mismatch_count,
         "mismatches": mismatches,
-        "passed": bool(taker) and duplicates == 0 and not missing_positive and not mismatches,
+        "passed": bool(taker) and duplicates == 0 and not missing_positive and mismatch_count == 0,
     }
 
 
@@ -230,7 +252,7 @@ def validate_symbol(cache_dir: Path) -> dict[str, Any]:
         "index_5m_grid": _grid_diagnostics(index, field="open_time", seconds=300, name="index_5m"),
         "oi_5m_grid": _grid_diagnostics(oi, field="source_timestamp", seconds=300, name="open_interest_5m"),
         "ratio_5m_grid": _grid_diagnostics(ratio, field="source_timestamp", seconds=300, name="long_short_ratio_5m"),
-        "funding_unique_monotonic": _grid_diagnostics(funding, field="source_timestamp", seconds=28800, name="funding_8h_expected"),
+        "funding_unique_monotonic": _sequence_diagnostics(funding, field="source_timestamp", name="funding"),
         "one_to_fifteen_ohlcv": _aggregate_1m_to_15m(c1m, c15),
         "trade_volume_vs_kline_1m": _trade_volume_reconciliation(c1m, trades),
         "derivative_anchor": _derivative_anchor_check(oi, deriv),
