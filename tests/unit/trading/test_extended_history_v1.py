@@ -82,7 +82,7 @@ def test_derivatives_parsers_normalize_timestamps_and_values():
     assert ratio[0]["long_short_ratio"] == Decimal("1.5")
 
 
-def test_derivative_reconstruction_uses_only_latest_values_at_or_before_oi_timestamp():
+def test_derivative_reconstruction_uses_only_closed_price_klines_at_oi_timestamp():
     t10 = dt.datetime(2026, 8, 10, 10, 0, tzinfo=UTC)
     t1005 = dt.datetime(2026, 8, 10, 10, 5, tzinfo=UTC)
     t1010 = dt.datetime(2026, 8, 10, 10, 10, tzinfo=UTC)
@@ -94,12 +94,14 @@ def test_derivative_reconstruction_uses_only_latest_values_at_or_before_oi_times
     ]
     mark = [
         {"open_time": t10, "close": Decimal("100")},
-        {"open_time": t1010, "close": Decimal("105")},
-        {"open_time": t1015, "close": Decimal("999")},  # future for both OI rows
+        {"open_time": t1005, "close": Decimal("102")},
+        {"open_time": t1010, "close": Decimal("105")},  # closes at 10:15, future at 10:10
+        {"open_time": t1015, "close": Decimal("999")},
     ]
     index = [
         {"open_time": t10, "close": Decimal("99")},
-        {"open_time": t1010, "close": Decimal("103")},
+        {"open_time": t1005, "close": Decimal("101")},
+        {"open_time": t1010, "close": Decimal("103")},  # closes at 10:15, future at 10:10
         {"open_time": t1015, "close": Decimal("1")},
     ]
     funding = [
@@ -113,6 +115,8 @@ def test_derivative_reconstruction_uses_only_latest_values_at_or_before_oi_times
 
     rows = reconstruct_derivative_snapshots(oi, mark, index, funding, ratio)
     assert len(rows) == 2
+
+    # At 10:05 the 10:00-10:05 kline has just closed and is knowable.
     assert rows[0]["mark_price"] == Decimal("100")
     assert rows[0]["index_price"] == Decimal("99")
     assert rows[0]["funding_rate"] == Decimal("0.0001")
@@ -120,13 +124,14 @@ def test_derivative_reconstruction_uses_only_latest_values_at_or_before_oi_times
     assert rows[0]["open_interest_value"] == Decimal("1000")
     assert rows[0]["basis"] == Decimal("1")
 
-    # At 10:10 the 10:10 mark/index rows are allowed, but the 10:15 future
-    # funding/ratio/price rows must not leak backward.
-    assert rows[1]["mark_price"] == Decimal("105")
-    assert rows[1]["index_price"] == Decimal("103")
+    # At 10:10 only the 10:05-10:10 mark/index candle is closed. The
+    # 10:10-10:15 close must not leak five minutes backward into this OI row.
+    assert rows[1]["mark_price"] == Decimal("102")
+    assert rows[1]["index_price"] == Decimal("101")
+    assert rows[1]["mark_price"] != Decimal("105")
+    assert rows[1]["index_price"] != Decimal("103")
     assert rows[1]["funding_rate"] == Decimal("0.0001")
     assert rows[1]["long_short_ratio"] == Decimal("1.2")
-    assert rows[1]["mark_price"] != Decimal("999")
 
 
 def test_trade_archive_streams_into_same_one_minute_aggregation(tmp_path):
