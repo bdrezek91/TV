@@ -191,7 +191,7 @@ def test_v12_detects_volume_weighted_time_series_momentum() -> None:
     assert setup["volume_expansion"] >= Decimal("1.20")
     assert setup["weighted_return"] > 0
     assert setup["momentum_4h"] > 0
-    assert setup["price_only_mode"] is True
+    assert setup["price_only_mode"] is False
     assert setup["detection_version"] == "V12_VOLUME_WEIGHTED_TSMOM_PREREG_V1"
 
 
