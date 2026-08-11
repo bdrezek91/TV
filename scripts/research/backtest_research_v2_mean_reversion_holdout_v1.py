@@ -9,19 +9,26 @@ This runner is intentionally narrow:
 - no tuning variants, no hours/symbol/W3 filters, no new strategies.
 
 The surrounding workflow must validate the dedicated holdout cache before this
-runner is used.  This script additionally fails closed if the backfill window,
+runner is used. This script additionally fails closed if the backfill window,
 universe or cache root differs from the pre-registered contract.
+
+Runtime note: symbols are loaded sequentially, one extended bundle at a time.
+BTC is evaluated first to reconstruct the exact per-cutoff BTC regime context;
+other symbols are then evaluated independently with that frozen context. Events
+are sorted back into the original cutoff-major / symbol-major order before the
+lifecycle gate. This changes memory usage only, not signal or execution rules.
 """
 from __future__ import annotations
 
 import argparse
 import bisect
 import datetime as dt
+import gc
 import json
 from collections import defaultdict
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Sequence
 
 from tradingview_mcp.core.backtest.comparison_candidate_v1 import build_research_v2_candidate_chain_indexed
 from tradingview_mcp.core.backtest.comparison_execution_v1 import simulate_neutral_signal
@@ -50,6 +57,7 @@ SCHEDULES = {
 }
 DEFAULT_HOLDOUT_CACHE_ROOT = Path("/app/artifacts/research/backtest_comparison/holdout_90d/cache")
 DEFAULT_OUTPUT = Path("/app/artifacts/research/backtest_comparison/holdout_90d/research_v2_mean_reversion_holdout_v1.json")
+SYMBOL_ORDER = {symbol: index for index, symbol in enumerate(REQUIRED_SYMBOLS)}
 
 
 def _jsonable(value: Any) -> Any:
@@ -64,7 +72,16 @@ def _jsonable(value: Any) -> Any:
     return value
 
 
-def _future_candles(candles: list[dict], timestamps: list[dt.datetime], cutoff: dt.datetime) -> list[dict]:
+def _future_candles(
+    candles: Sequence[dict[str, Any]],
+    timestamps: Sequence[dt.datetime],
+    cutoff: dt.datetime,
+) -> Sequence[dict[str, Any]]:
+    """Return the same cutoff tail used by discovery.
+
+    The slice is intentionally preserved rather than changing W5 input
+    semantics during validation. Sequential bundle loading is the memory fix.
+    """
     return candles[bisect.bisect_left(timestamps, cutoff):]
 
 
@@ -78,52 +95,119 @@ def _group_summary(events: list[dict[str, Any]], key_fn: Callable[[dict[str, Any
     }
 
 
+def _collect_symbol_events(
+    symbol: str,
+    successful_row: dict[str, Any],
+    cutoffs: Sequence[dt.datetime],
+    *,
+    btc_regimes: Sequence[str | None] | None,
+) -> tuple[list[dict[str, Any]], list[str | None] | None]:
+    """Evaluate one symbol while only that symbol's 90d bundle is resident.
+
+    For BTC, ``btc_regimes`` must be None and the exact primary regime at each
+    cutoff is returned for use by all other symbols. Non-BTC symbols receive
+    that precomputed context. Hysteresis state remains independent per symbol,
+    exactly as in the original cutoff-major implementation.
+    """
+    is_btc = symbol == "BTCUSDT"
+    if is_btc and btc_regimes is not None:
+        raise ValueError("BTC must be evaluated without external btc_regimes")
+    if not is_btc and (btc_regimes is None or len(btc_regimes) != len(cutoffs)):
+        raise ValueError(f"{symbol} requires one BTC regime value per cutoff")
+
+    cache_dir = Path(successful_row["manifest"]["cache_dir"])
+    bundle = load_extended_bundle(cache_dir)
+    index = HistoricalWindowIndex(bundle.inputs)
+    candles: Sequence[dict[str, Any]] = bundle.inputs.candles_1m
+    candle_times = [c["open_time"] for c in candles]
+
+    state = None
+    events: list[dict[str, Any]] = []
+    derived_btc_regimes: list[str | None] | None = [] if is_btc else None
+
+    for cutoff_index, cutoff in enumerate(cutoffs):
+        btc_regime = None if is_btc else btc_regimes[cutoff_index]  # type: ignore[index]
+        chain = build_research_v2_candidate_chain_indexed(
+            symbol,
+            index,
+            cutoff,
+            btc_regime=btc_regime,
+            previous_state=state,
+        )
+        state = chain.get("_state")
+
+        if is_btc:
+            derived_btc_regimes.append(chain["regime"].get("primary_regime"))  # type: ignore[union-attr]
+
+        for signal in neutral_signals_from_research(chain, approved_only=True):
+            if signal.setup_name != "mean_reversion":
+                continue
+            future = _future_candles(candles, candle_times, cutoff)
+            result = simulate_neutral_signal(signal, future)
+            events.append({
+                "symbol": symbol,
+                "decision_time": signal.decision_time,
+                "direction": signal.direction,
+                "regime": signal.regime or "UNKNOWN",
+                "confirmation_status": str(signal.metadata.get("confirmation_status") or "UNKNOWN"),
+                "observation": result.observation,
+                "order": result.order,
+            })
+
+    return events, derived_btc_regimes
+
+
+def _restore_original_event_order(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Restore original cutoff-major then REQUIRED_SYMBOLS order deterministically."""
+    return sorted(
+        events,
+        key=lambda event: (
+            event["decision_time"],
+            SYMBOL_ORDER[event["symbol"]],
+        ),
+    )
+
+
 def _run_schedule(
     schedule_name: str,
     hours: tuple[int, ...],
     successful: dict[str, Any],
 ) -> dict[str, Any]:
     requested = list(REQUIRED_SYMBOLS)
-    bundles = {s: load_extended_bundle(Path(successful[s]["manifest"]["cache_dir"])) for s in requested}
-    indexes = {s: HistoricalWindowIndex(bundle.inputs) for s, bundle in bundles.items()}
-    candles = {s: list(bundle.inputs.candles_1m) for s, bundle in bundles.items()}
-    candle_times = {s: [c["open_time"] for c in candles[s]] for s in bundles}
-    states = {s: None for s in requested}
     cutoffs = decision_times(HOLDOUT_EVALUATION_START, HOLDOUT_DECISION_END, hours=hours)
 
+    # Memory-safe evaluation plan: at most one extended 90d bundle is loaded at
+    # a time. BTC goes first solely to reproduce the exact btc_regime context
+    # that the original implementation supplied to the remaining symbols.
     approved_events: list[dict[str, Any]] = []
-    for cutoff in cutoffs:
-        btc_regime = None
-        chains: dict[str, dict[str, Any]] = {}
-        for symbol in requested:
-            chain = build_research_v2_candidate_chain_indexed(
-                symbol,
-                indexes[symbol],
-                cutoff,
-                btc_regime=btc_regime,
-                previous_state=states[symbol],
-            )
-            states[symbol] = chain.get("_state")
-            chains[symbol] = chain
-            if symbol == "BTCUSDT":
-                btc_regime = chain["regime"].get("primary_regime")
 
-        for symbol in requested:
-            chain = chains[symbol]
-            future = _future_candles(candles[symbol], candle_times[symbol], cutoff)
-            for signal in neutral_signals_from_research(chain, approved_only=True):
-                if signal.setup_name != "mean_reversion":
-                    continue
-                result = simulate_neutral_signal(signal, future)
-                approved_events.append({
-                    "symbol": symbol,
-                    "decision_time": signal.decision_time,
-                    "direction": signal.direction,
-                    "regime": signal.regime or "UNKNOWN",
-                    "confirmation_status": str(signal.metadata.get("confirmation_status") or "UNKNOWN"),
-                    "observation": result.observation,
-                    "order": result.order,
-                })
+    btc_events, btc_regimes = _collect_symbol_events(
+        "BTCUSDT",
+        successful["BTCUSDT"],
+        cutoffs,
+        btc_regimes=None,
+    )
+    approved_events.extend(btc_events)
+    if btc_regimes is None or len(btc_regimes) != len(cutoffs):
+        raise RuntimeError("failed to reconstruct BTC regime context for every cutoff")
+    gc.collect()
+
+    for symbol in requested[1:]:
+        symbol_events, _ = _collect_symbol_events(
+            symbol,
+            successful[symbol],
+            cutoffs,
+            btc_regimes=btc_regimes,
+        )
+        approved_events.extend(symbol_events)
+        # The symbol bundle/index frame has returned and can now be reclaimed
+        # before the next 90d symbol is loaded.
+        gc.collect()
+
+    # Sequential loading changes discovery order in memory (all BTC events,
+    # then all ETH, ...). Restore the original cutoff-major ordering before the
+    # lifecycle gate and summary/bootstrap code to keep deterministic outputs.
+    approved_events = _restore_original_event_order(approved_events)
 
     gate = SingleSymbolLifecycleGate()
     lifecycle_events: list[dict[str, Any]] = []
@@ -160,6 +244,12 @@ def _run_schedule(
             "by_w3_status": _group_summary(lifecycle_events, lambda e: e["confirmation_status"]),
         },
         "lifecycle_gate_diagnostics": gate.diagnostics(),
+        "runtime_execution_plan": {
+            "bundle_loading": "SEQUENTIAL_ONE_SYMBOL_AT_A_TIME",
+            "btc_context": "PRECOMPUTED_PER_CUTOFF_WITH_IDENTICAL_HYSTERESIS",
+            "event_order": "RESTORED_CUTOFF_MAJOR_REQUIRED_SYMBOL_ORDER",
+            "strategy_or_threshold_change": False,
+        },
         "interpretation_contract": (
             "These groups are robustness diagnostics only. The frozen holdout decision is made by the pre-registered aggregate rule; "
             "hours, symbols, W3 statuses and regimes may not be filtered or retuned after observing this holdout."
@@ -179,10 +269,11 @@ def main(args: argparse.Namespace) -> dict[str, Any]:
         symbol: summary["results"][symbol]
         for symbol in REQUIRED_SYMBOLS
     }
-    results = {
-        name: _run_schedule(name, hours, successful)
-        for name, hours in SCHEDULES.items()
-    }
+    results: dict[str, Any] = {}
+    for name, hours in SCHEDULES.items():
+        results[name] = _run_schedule(name, hours, successful)
+        gc.collect()
+
     assessment = assess_holdout(results)
 
     payload = {
@@ -201,6 +292,11 @@ def main(args: argparse.Namespace) -> dict[str, Any]:
         "frozen_source_blobs": FROZEN_SOURCE_BLOBS,
         "pre_registered_pass_rule": PASS_RULE,
         "backfill_contract": guard,
+        "runtime_execution_plan": {
+            "bundle_loading": "SEQUENTIAL_ONE_SYMBOL_AT_A_TIME",
+            "reason": "RESOURCE_SAFETY_ONLY_AFTER_4GB_VPS_HARD_FREEZE",
+            "strategy_or_threshold_change": False,
+        },
         "results": results,
         "holdout_assessment": assessment,
         "guards": [
@@ -212,6 +308,7 @@ def main(args: argparse.Namespace) -> dict[str, Any]:
             "W5 execution, fees, slippage and funding assumptions unchanged",
             "same lifecycle gate as discovery",
             "no new strategy variants or threshold search on holdout",
+            "runtime memory optimization loads one symbol at a time and restores original event order",
             "FULL_24H_1H versus 2H remains sensitivity because W1 hysteresis is tick-based",
             "a HOLDOUT_FAIL must not be rescued by filtering symbols/hours/W3/regimes on this period",
         ],
