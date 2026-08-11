@@ -18,7 +18,9 @@ def _candle(i: int, o: str, h: str, l: str, c: str, v: str = "10") -> dict:
 
 def test_detects_long_below_vwap_with_bullish_rejection() -> None:
     candles = [_candle(i, "100", "101", "99", "100") for i in range(95)]
-    candles.append(_candle(95, "97", "98", "95", "97.5"))
+    # 97.4 keeps the rejection candle bullish while placing the close safely
+    # beyond the detector's predeclared 1.25 ATR minimum deviation.
+    candles.append(_candle(95, "97", "98", "95", "97.4"))
     chain = {
         "regime": {"primary_regime": "NO_EDGE"},
         "features": {"tf": {"1h": {"atr": Decimal("2")}}},
