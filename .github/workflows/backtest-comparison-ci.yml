@@ -26,6 +26,7 @@ on:
       - 'scripts/research/render_backtest_comparison_report_v1.py'
       - 'tests/unit/trading/test_*comparison*v1.py'
       - 'tests/unit/trading/test_extended_history*.py'
+      - 'tests/unit/trading/test_validate_extended_cache_no_lookahead.py'
       - 'tests/unit/trading/test_orderbook_retention.py'
       - 'tests/unit/trading/test_tv_shadow_v1.py'
       - '.github/workflows/backtest-comparison-ci.yml'
@@ -68,6 +69,7 @@ jobs:
             tests/unit/trading/test_extended_history_v1.py \
             tests/unit/trading/test_extended_history_downloader_v1.py \
             tests/unit/trading/test_extended_history_loader_v1.py \
+            tests/unit/trading/test_validate_extended_cache_no_lookahead.py \
             tests/unit/trading/test_orderbook_retention.py \
             tests/unit/trading/test_tv_shadow_v1.py \
             tests/unit/trading/test_tradingview_context.py
