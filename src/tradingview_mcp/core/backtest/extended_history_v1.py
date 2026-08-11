@@ -37,6 +37,7 @@ from tradingview_mcp.core.market_data.bybit.schemas import Trade
 OFFICIAL_API_BASE = "https://api.bybit.com"
 PUBLIC_TRADE_BASE = "https://public.bybit.com/trading"
 DEFAULT_CACHE_ROOT = Path("/app/artifacts/research/backtest_comparison/cache")
+PRICE_KLINE_INTERVAL = dt.timedelta(minutes=5)
 
 
 @dataclass(frozen=True)
@@ -247,24 +248,27 @@ def reconstruct_derivative_snapshots(
 ) -> list[dict[str, Any]]:
     """Build 5m-ish derivative snapshots anchored on OI timestamps.
 
-    Every auxiliary value is taken from the latest record at-or-before the OI
-    timestamp. Nothing is interpolated from the future.
+    OI, funding and ratio rows are point observations at their published
+    timestamps. Mark/index rows are five-minute klines: their ``close`` is not
+    knowable at ``open_time`` and therefore becomes eligible only after the
+    full five-minute interval has closed. This explicit availability clock
+    prevents a same-kline look-ahead in reconstructed price/OI relationships.
     """
     oi_rows = sorted(open_interest, key=lambda r: r["source_timestamp"])
     mark_rows = sorted(mark_klines, key=lambda r: r["open_time"])
     index_rows = sorted(index_klines, key=lambda r: r["open_time"])
     funding_rows = sorted(funding, key=lambda r: r["source_timestamp"])
     ratio_rows = sorted(ratios, key=lambda r: r["source_timestamp"])
-    mark_ts = [r["open_time"] for r in mark_rows]
-    index_ts = [r["open_time"] for r in index_rows]
+    mark_available_ts = [r["open_time"] + PRICE_KLINE_INTERVAL for r in mark_rows]
+    index_available_ts = [r["open_time"] + PRICE_KLINE_INTERVAL for r in index_rows]
     funding_ts = [r["source_timestamp"] for r in funding_rows]
     ratio_ts = [r["source_timestamp"] for r in ratio_rows]
 
     out: list[dict[str, Any]] = []
     for oi in oi_rows:
         ts = oi["source_timestamp"]
-        mark = _latest_at_or_before(mark_rows, mark_ts, ts)
-        index = _latest_at_or_before(index_rows, index_ts, ts)
+        mark = _latest_at_or_before(mark_rows, mark_available_ts, ts)
+        index = _latest_at_or_before(index_rows, index_available_ts, ts)
         fund = _latest_at_or_before(funding_rows, funding_ts, ts)
         ratio = _latest_at_or_before(ratio_rows, ratio_ts, ts)
         mark_price = Decimal(str(mark["close"])) if mark is not None else None
