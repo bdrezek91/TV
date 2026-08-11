@@ -121,9 +121,17 @@ def detect_cvd_divergence_setup(chain: Mapping[str, Any]) -> dict[str, Any]:
     if windows is None:
         return _no_setup("historical windows unavailable", regime)
     candles = list(getattr(windows, "candles_15m", []) or [])[-LOOKBACK_15M:]
-    trades = list(getattr(windows, "trades_1m", []) or [])
+
+    # Do not reuse the standard 30-minute W1/W3 trade window. Divergence over
+    # up to 24 x 15m candles needs a separately supplied six-hour point-in-time
+    # history. Failing closed here prevents the old bug from silently returning
+    # a mostly-zero pseudo-CVD series when only the 30m feature window exists.
+    dedicated_trades = chain.get("_cvd_trades_1m")
+    if dedicated_trades is None:
+        return _no_setup("dedicated 6h 1m trade history unavailable for CVD divergence", regime)
+    trades = list(dedicated_trades or [])
     if len(candles) < 12 or not trades:
-        return _no_setup("insufficient 15m price / 1m trade history for CVD divergence", regime)
+        return _no_setup("insufficient 15m price / dedicated 1m trade history for CVD divergence", regime)
 
     tf_1h = (((chain.get("features") or {}).get("tf") or {}).get("1h") or {})
     atr = _d(tf_1h.get("atr"))
@@ -207,7 +215,7 @@ def detect_cvd_divergence_setup(chain: Mapping[str, Any]) -> dict[str, Any]:
         "regime_compatible": True,
         "price_only_mode": False,
         "orderflow_confirmed": False,
-        "detection_version": "CVD_REGULAR_DIVERGENCE_CONFIRMED_PIVOTS_V1",
+        "detection_version": "CVD_REGULAR_DIVERGENCE_CONFIRMED_PIVOTS_V2_LONG_HISTORY",
         "pivot_1_index": div["i1"],
         "pivot_2_index": div["i2"],
     }
