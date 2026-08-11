@@ -154,6 +154,44 @@ def _run_schedule(name: str, hours: tuple[int, ...], successful: dict[str, Any],
         "by_symbol": _group(submitted, lambda event: event["symbol"]),
         "by_direction": _group(submitted, lambda event: event["direction"]),
         "lifecycle_gate": gate.diagnostics(),
+        "event_ledger": [
+            {
+                "symbol": event["symbol"],
+                "decision_time": event["decision_time"],
+                "direction": event["direction"],
+                "regime": event["regime"],
+                "filled": event["observation"].filled,
+                "r_multiple": event["observation"].r_multiple,
+            }
+            for event in submitted
+        ],
+    }
+
+
+def _cadence_overlap(results: dict[str, Any]) -> dict[str, Any]:
+    one_h = results["FULL_24H_1H"]["event_ledger"]
+    two_h = results["FULL_24H_2H"]["event_ledger"]
+    key = lambda event: (event["symbol"], event["decision_time"], event["direction"])
+    one_index = {key(event): event for event in one_h}
+    two_index = {key(event): event for event in two_h}
+    common = sorted(set(one_index) & set(two_index), key=lambda row: (row[1], SYMBOL_ORDER[row[0]], row[2]))
+    only_one = set(one_index) - set(two_index)
+    only_two = set(two_index) - set(one_index)
+    return {
+        "definition": "event identity is symbol + decision_time + direction",
+        "full_1h_events": len(one_index),
+        "full_2h_events": len(two_index),
+        "common_events": len(common),
+        "only_full_1h": len(only_one),
+        "only_full_2h": len(only_two),
+        "jaccard": (len(common) / len(set(one_index) | set(two_index))) if (one_index or two_index) else None,
+        "common_r_mismatches": sum(
+            one_index[row]["r_multiple"] != two_index[row]["r_multiple"] for row in common
+        ),
+        "interpretation": (
+            "Low overlap at timestamps shared by both schedules indicates cadence-dependent "
+            "W1 state/hysteresis, not merely extra opportunities from hourly scanning."
+        ),
     }
 
 
@@ -172,6 +210,7 @@ def main(args: argparse.Namespace) -> dict[str, Any]:
     start = _dt(window["evaluation_start"])
     raw_end = _dt(window["evaluation_end"])
     end = raw_end - MIN_FUTURE_EXECUTION
+    results = {name: _run_schedule(name, hours, successful, start, end) for name, hours in SCHEDULES.items()}
     payload = {
         "research_contract": "BACKTEST_COMPARISON_V1",
         "candidate_kind": V14_NAME,
@@ -180,7 +219,8 @@ def main(args: argparse.Namespace) -> dict[str, Any]:
         "reserved_120d_holdout_used": False,
         "evaluation_window": {"start": start, "raw_end": raw_end, "decision_end": end},
         "requested_symbols": list(REQUIRED_SYMBOLS),
-        "results": {name: _run_schedule(name, hours, successful, start, end) for name, hours in SCHEDULES.items()},
+        "results": results,
+        "cadence_diagnostics": _cadence_overlap(results),
         "guards": [
             "reserved holdout_mrv2_120d path is rejected",
             "point-in-time candidate chain only",
