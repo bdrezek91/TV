@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Validate reconstructed derivative cache against closed-kline availability.
+"""Validate extended research cache safety invariants.
 
 Research-only safety check. Reads the existing extended cache and verifies that
 for every derivative snapshot the stored mark/index price equals the latest 5m
-price kline whose full interval had closed by the derivative timestamp.
+price kline whose full interval had closed by the derivative timestamp. It also
+fails closed when a required cache is empty or a daily public-trade archive was
+explicitly recorded as missing.
 
 No production DB writes, paper-state access, network calls or exchange actions.
 Exit code is non-zero when any look-ahead mismatch or required-cache gap is
@@ -23,7 +25,7 @@ from tradingview_mcp.core.backtest.extended_history_v1 import DEFAULT_CACHE_ROOT
 
 UTC = dt.timezone.utc
 FIVE_MINUTES = dt.timedelta(minutes=5)
-VALIDATOR_VERSION = "EXTENDED_DERIVATIVES_CLOSED_5M_AVAILABILITY_V2_FAIL_CLOSED"
+VALIDATOR_VERSION = "EXTENDED_CACHE_SAFETY_V3_CLOSED_5M_AND_TRADE_ARCHIVE_COVERAGE"
 MAX_REPORTED_VIOLATIONS = 10
 
 
@@ -40,8 +42,12 @@ def _d(value: Any) -> Decimal | None:
     return value if isinstance(value, Decimal) else Decimal(str(value))
 
 
+def _payload(path: Path) -> Any:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
 def _rows(path: Path) -> list[dict[str, Any]]:
-    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload = _payload(path)
     rows = payload.get("rows", payload) if isinstance(payload, dict) else payload
     if not isinstance(rows, list):
         raise ValueError(f"cache rows must be a list: {path}")
@@ -64,6 +70,22 @@ def _latest(available_at: list[dt.datetime], values: list[Decimal], at: dt.datet
     return values[idx] if idx >= 0 else None
 
 
+def _trade_archive_coverage(cache_dir: Path) -> tuple[int, list[str]]:
+    daily_root = cache_dir / "trades_1m_daily"
+    if not daily_root.is_dir():
+        raise ValueError("trades_1m_daily cache directory is missing")
+    daily_files = sorted(daily_root.glob("*.json"))
+    if not daily_files:
+        raise ValueError("trades_1m_daily cache contains no daily files")
+
+    missing_days: list[str] = []
+    for path in daily_files:
+        payload = _payload(path)
+        if isinstance(payload, dict) and payload.get("missing") is True:
+            missing_days.append(path.stem)
+    return len(daily_files), missing_days
+
+
 def validate_symbol(cache_dir: Path) -> dict[str, Any]:
     mark_rows = _rows(cache_dir / "mark_5m.json")
     index_rows = _rows(cache_dir / "index_5m.json")
@@ -71,6 +93,7 @@ def validate_symbol(cache_dir: Path) -> dict[str, Any]:
     if not derivatives:
         raise ValueError("derivatives_reconstructed cache is empty")
 
+    trade_archive_days, missing_trade_days = _trade_archive_coverage(cache_dir)
     mark_at, mark_close = _expected_closed_prices(mark_rows, source="mark_5m")
     index_at, index_close = _expected_closed_prices(index_rows, source="index_5m")
 
@@ -93,14 +116,17 @@ def validate_symbol(cache_dir: Path) -> dict[str, Any]:
                     "expected_index": str(expected_index) if expected_index is not None else None,
                 })
 
+    passed = violation_count == 0 and not missing_trade_days
     return {
         "cache_dir": str(cache_dir),
         "mark_rows": len(mark_rows),
         "index_rows": len(index_rows),
         "derivative_rows": len(derivatives),
+        "trade_archive_days": trade_archive_days,
+        "missing_trade_archive_days": missing_trade_days,
         "violations": violation_count,
         "first_violations": first_violations,
-        "passed": violation_count == 0,
+        "passed": passed,
     }
 
 
