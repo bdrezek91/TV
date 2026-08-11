@@ -4,8 +4,8 @@
 Research-only safety check. Reads the existing extended cache and verifies that
 for every derivative snapshot the stored mark/index price equals the latest 5m
 price kline whose full interval had closed by the derivative timestamp. It also
-fails closed when a required cache is empty or a daily public-trade archive was
-explicitly recorded as missing.
+fails closed when a required cache is empty, a requested daily public-trade
+cache file is absent, or a public-trade archive was explicitly recorded missing.
 
 No production DB writes, paper-state access, network calls or exchange actions.
 Exit code is non-zero when any look-ahead mismatch or required-cache gap is
@@ -21,11 +21,11 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from tradingview_mcp.core.backtest.extended_history_v1 import DEFAULT_CACHE_ROOT
+from tradingview_mcp.core.backtest.extended_history_v1 import DEFAULT_CACHE_ROOT, utc_dates
 
 UTC = dt.timezone.utc
 FIVE_MINUTES = dt.timedelta(minutes=5)
-VALIDATOR_VERSION = "EXTENDED_CACHE_SAFETY_V3_CLOSED_5M_AND_TRADE_ARCHIVE_COVERAGE"
+VALIDATOR_VERSION = "EXTENDED_CACHE_SAFETY_V4_CLOSED_5M_AND_COMPLETE_TRADE_ARCHIVE_COVERAGE"
 MAX_REPORTED_VIOLATIONS = 10
 
 
@@ -70,7 +70,19 @@ def _latest(available_at: list[dt.datetime], values: list[Decimal], at: dt.datet
     return values[idx] if idx >= 0 else None
 
 
-def _trade_archive_coverage(cache_dir: Path) -> tuple[int, list[str]]:
+def _trade_archive_coverage(cache_dir: Path) -> tuple[int, list[str], list[str]]:
+    manifest_path = cache_dir / "manifest.json"
+    if not manifest_path.is_file():
+        raise ValueError("manifest.json is missing")
+    manifest = _payload(manifest_path)
+    if not isinstance(manifest, dict):
+        raise ValueError("manifest.json must contain an object")
+    requested_start = _dt(manifest.get("requested_start"))
+    requested_end = _dt(manifest.get("requested_end"))
+    expected_days = {day.isoformat() for day in utc_dates(requested_start, requested_end)}
+    if not expected_days:
+        raise ValueError("manifest requested range contains no UTC days")
+
     daily_root = cache_dir / "trades_1m_daily"
     if not daily_root.is_dir():
         raise ValueError("trades_1m_daily cache directory is missing")
@@ -78,12 +90,14 @@ def _trade_archive_coverage(cache_dir: Path) -> tuple[int, list[str]]:
     if not daily_files:
         raise ValueError("trades_1m_daily cache contains no daily files")
 
-    missing_days: list[str] = []
-    for path in daily_files:
-        payload = _payload(path)
+    actual_by_day = {path.stem: path for path in daily_files}
+    absent_days = sorted(expected_days - set(actual_by_day))
+    explicit_missing_days: list[str] = []
+    for day in sorted(expected_days & set(actual_by_day)):
+        payload = _payload(actual_by_day[day])
         if isinstance(payload, dict) and payload.get("missing") is True:
-            missing_days.append(path.stem)
-    return len(daily_files), missing_days
+            explicit_missing_days.append(day)
+    return len(expected_days), absent_days, explicit_missing_days
 
 
 def validate_symbol(cache_dir: Path) -> dict[str, Any]:
@@ -93,7 +107,7 @@ def validate_symbol(cache_dir: Path) -> dict[str, Any]:
     if not derivatives:
         raise ValueError("derivatives_reconstructed cache is empty")
 
-    trade_archive_days, missing_trade_days = _trade_archive_coverage(cache_dir)
+    expected_trade_archive_days, absent_trade_days, explicit_missing_trade_days = _trade_archive_coverage(cache_dir)
     mark_at, mark_close = _expected_closed_prices(mark_rows, source="mark_5m")
     index_at, index_close = _expected_closed_prices(index_rows, source="index_5m")
 
@@ -116,14 +130,19 @@ def validate_symbol(cache_dir: Path) -> dict[str, Any]:
                     "expected_index": str(expected_index) if expected_index is not None else None,
                 })
 
-    passed = violation_count == 0 and not missing_trade_days
+    passed = (
+        violation_count == 0
+        and not absent_trade_days
+        and not explicit_missing_trade_days
+    )
     return {
         "cache_dir": str(cache_dir),
         "mark_rows": len(mark_rows),
         "index_rows": len(index_rows),
         "derivative_rows": len(derivatives),
-        "trade_archive_days": trade_archive_days,
-        "missing_trade_archive_days": missing_trade_days,
+        "expected_trade_archive_days": expected_trade_archive_days,
+        "absent_trade_archive_days": absent_trade_days,
+        "explicit_missing_trade_archive_days": explicit_missing_trade_days,
         "violations": violation_count,
         "first_violations": first_violations,
         "passed": passed,
