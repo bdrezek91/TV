@@ -23,6 +23,7 @@ on:
       - 'scripts/research/backtest_research_v2_candidate_v9_volatility_expansion.py'
       - 'scripts/research/validate_extended_cache_no_lookahead.py'
       - 'scripts/research/validate_bybit_data_fidelity.py'
+      - 'scripts/research/adjudicate_bybit_trade_volume_mismatches.py'
       - 'scripts/research/diagnose_research_v2_cadence_v1.py'
       - 'scripts/research/render_backtest_comparison_report_v1.py'
       - 'tests/unit/trading/test_*comparison*v1.py'
@@ -70,6 +71,7 @@ jobs:
             tests/unit/trading/test_comparison_report_v1.py \
             tests/unit/trading/test_w5_comparison_diagnostics_v1.py \
             tests/unit/trading/test_backtest_comparison_bybit_data_fidelity_v1.py \
+            tests/unit/trading/test_backtest_comparison_bybit_trade_adjudicator_v1.py \
             tests/unit/trading/test_extended_history_v1.py \
             tests/unit/trading/test_extended_history_downloader_v1.py \
             tests/unit/trading/test_extended_history_loader_v1.py \
@@ -94,6 +96,7 @@ jobs:
           python scripts/research/backtest_research_v2_candidate_v9_volatility_expansion.py --help >/dev/null
           python scripts/research/validate_extended_cache_no_lookahead.py --help >/dev/null
           python scripts/research/validate_bybit_data_fidelity.py --help >/dev/null
+          python scripts/research/adjudicate_bybit_trade_volume_mismatches.py --help >/dev/null
           python scripts/research/diagnose_research_v2_cadence_v1.py --help >/dev/null
           python scripts/research/render_backtest_comparison_report_v1.py --help >/dev/null
           python -c 'from tradingview_mcp.workers.orderbook_maintenance_main import policy_from_env; policy_from_env()'
