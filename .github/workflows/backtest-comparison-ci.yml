@@ -25,6 +25,7 @@ on:
       - 'scripts/research/backtest_research_v2_mean_reversion_holdout_v1.py'
       - 'scripts/research/backtest_research_v2_mean_reversion_v2_development.py'
       - 'scripts/research/backtest_research_v2_mean_reversion_v2_holdout_120d.py'
+      - 'scripts/research/backtest_research_v13_breakout_development.py'
       - 'scripts/research/export_mean_reversion_v1_postmortem.py'
       - 'scripts/research/validate_extended_cache_no_lookahead.py'
       - 'scripts/research/validate_bybit_data_fidelity.py'
@@ -36,6 +37,8 @@ on:
       - 'tests/unit/trading/test_comparison_holdout_v1.py'
       - 'tests/unit/trading/test_comparison_mean_reversion_v2.py'
       - 'tests/unit/trading/test_comparison_mean_reversion_v2_holdout.py'
+      - 'tests/unit/trading/test_comparison_breakout_v13.py'
+      - 'tests/unit/trading/test_backtest_research_v13_breakout_development.py'
       - 'tests/unit/trading/test_extended_history*.py'
       - 'tests/unit/trading/test_validate_extended_cache_no_lookahead.py'
       - 'tests/unit/trading/test_orderbook_retention.py'
@@ -81,6 +84,8 @@ jobs:
             tests/unit/trading/test_comparison_postmortem_v1.py \
             tests/unit/trading/test_comparison_mean_reversion_v2.py \
             tests/unit/trading/test_comparison_mean_reversion_v2_holdout.py \
+            tests/unit/trading/test_comparison_breakout_v13.py \
+            tests/unit/trading/test_backtest_research_v13_breakout_development.py \
             tests/unit/trading/test_comparison_lifecycle_v1.py \
             tests/unit/trading/test_comparison_report_v1.py \
             tests/unit/trading/test_w5_comparison_diagnostics_v1.py \
@@ -112,6 +117,7 @@ jobs:
           python scripts/research/backtest_research_v2_mean_reversion_holdout_v1.py --help >/dev/null
           python scripts/research/backtest_research_v2_mean_reversion_v2_development.py --help >/dev/null
           python scripts/research/backtest_research_v2_mean_reversion_v2_holdout_120d.py --help >/dev/null
+          python scripts/research/backtest_research_v13_breakout_development.py --help >/dev/null
           python scripts/research/export_mean_reversion_v1_postmortem.py --help >/dev/null
           python scripts/research/validate_extended_cache_no_lookahead.py --help >/dev/null
           python scripts/research/validate_bybit_data_fidelity.py --help >/dev/null
