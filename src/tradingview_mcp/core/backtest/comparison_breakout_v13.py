@@ -23,6 +23,7 @@ ALLOWED_REGIMES = {
     "LONG": {"TREND_UP", "BREAKOUT_UP"},
     "SHORT": {"TREND_DOWN", "BREAKOUT_DOWN"},
 }
+V13_BASE_BREAKOUT_REGIMES = {"TREND_UP", "TREND_DOWN", "BREAKOUT_UP", "BREAKOUT_DOWN"}
 OI_RELATION = {
     "LONG": "PRICE_UP_OI_UP",
     "SHORT": "PRICE_DOWN_OI_UP",
@@ -131,7 +132,11 @@ def evaluate_v13_gates(chain: Mapping[str, Any], direction: str) -> dict[str, An
 
 def evaluate_breakout_v13(chain: Mapping[str, Any], *, btc_regime: str | None = None) -> dict[str, Any]:
     """Return the existing breakout evaluation plus fail-closed V13 gates."""
-    base = evaluate_volatility_expansion(chain, btc_regime=btc_regime)
+    base = evaluate_volatility_expansion(
+        chain,
+        btc_regime=btc_regime,
+        allowed_regimes=V13_BASE_BREAKOUT_REGIMES,
+    )
     setup = base["setup"]
     direction = str(setup.get("direction") or "NO_SETUP")
     gates = evaluate_v13_gates(chain, direction)
