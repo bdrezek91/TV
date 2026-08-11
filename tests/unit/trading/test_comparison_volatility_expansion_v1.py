@@ -64,3 +64,20 @@ def test_requires_two_equal_four_hour_windows_plus_trigger() -> None:
     setup = detect_volatility_expansion_setup(_chain(candles))
     assert setup["direction"] == "NO_SETUP"
     assert "equal pre-compression/compression windows" in setup["reasons"][0]
+
+
+def test_custom_scope_can_enable_trend_regime_without_changing_default() -> None:
+    older = [_candle(i, "100", "110", "90", "100") for i in range(16)]
+    recent = [_candle(16 + i, "100", "102", "98", "100") for i in range(16)]
+    trigger = _candle(32, "100", "104", "99", "103")
+    chain = _chain(older + recent + [trigger])
+    chain["regime"]["primary_regime"] = "TREND_UP"
+
+    default = detect_volatility_expansion_setup(chain)
+    v13_scope = detect_volatility_expansion_setup(
+        chain,
+        allowed_regimes={"TREND_UP", "TREND_DOWN", "BREAKOUT_UP", "BREAKOUT_DOWN"},
+    )
+
+    assert default["direction"] == "NO_SETUP"
+    assert v13_scope["direction"] == "LONG"
