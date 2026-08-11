@@ -25,9 +25,10 @@ import httpx
 from tradingview_mcp.core.backtest.extended_history_v1 import DEFAULT_CACHE_ROOT, OFFICIAL_API_BASE
 
 UTC = dt.timezone.utc
-VERIFY_VERSION = "BYBIT_RAW_REST_SPOTCHECK_V1"
+VERIFY_VERSION = "BYBIT_RAW_REST_SPOTCHECK_V2"
 REL_TOL = Decimal("0.00000001")
 ABS_TOL = Decimal("0.00000001")
+INTERVAL_SECONDS = {"1": 60, "5": 300, "15": 900, "60": 3600, "240": 14400}
 
 
 def _dt(value: Any) -> dt.datetime:
@@ -91,9 +92,11 @@ def _find_list_row(payload: dict[str, Any], timestamp_ms: int, *, dict_timestamp
 async def _verify_kline(client: httpx.AsyncClient, symbol: str, cache_dir: Path, *, name: str, path: str, interval: str, price_only: bool) -> dict[str, Any]:
     cached = _middle(_rows(cache_dir / f"{name}.json"))
     ts = _dt(cached["open_time"])
+    seconds = INTERVAL_SECONDS[interval]
+    end = ts + dt.timedelta(seconds=seconds) - dt.timedelta(milliseconds=1)
     payload = await _get(client, path, {
         "category": "linear", "symbol": symbol, "interval": interval,
-        "start": _ms(ts), "end": _ms(ts), "limit": 2,
+        "start": _ms(ts), "end": _ms(end), "limit": 2,
     })
     raw = _find_list_row(payload, _ms(ts))
     if raw is None:
@@ -178,7 +181,7 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
     results: dict[str, Any] = {}
 
     timeout = httpx.Timeout(args.timeout)
-    async with httpx.AsyncClient(timeout=timeout, headers={"User-Agent": "TV-BYBIT-CACHE-VERIFY/1.0"}) as client:
+    async with httpx.AsyncClient(timeout=timeout, headers={"User-Agent": "TV-BYBIT-CACHE-VERIFY/2.0"}) as client:
         for symbol, row in source.items():
             symbol_upper = str(symbol).upper()
             if requested is not None and symbol_upper not in requested:
