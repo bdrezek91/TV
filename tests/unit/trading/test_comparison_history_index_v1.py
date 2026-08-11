@@ -43,7 +43,8 @@ def test_indexed_windows_match_reference_windows_for_decision_sources():
     data = HistoricalInputs(c4, c1, c15, c1m, trades, liq, ob, deriv)
 
     ref = windows_as_of(data, cutoff)
-    fast = HistoricalWindowIndex(data).windows(cutoff, include_execution_1m=True)
+    index = HistoricalWindowIndex(data)
+    fast = index.windows(cutoff, include_execution_1m=True)
     assert fast.candles_4h == ref.candles_4h
     assert fast.candles_1h == ref.candles_1h
     assert fast.candles_15m == ref.candles_15m
@@ -51,6 +52,12 @@ def test_indexed_windows_match_reference_windows_for_decision_sources():
     assert fast.liq_15m == ref.liq_15m
     assert fast.orderbook == ref.orderbook
     assert fast.derivatives == ref.derivatives
+
+    # Longer research thesis windows are isolated: asking CVD for 60 minutes
+    # does not silently expand the standard 30-minute W1/W3 feature window.
+    assert len(fast.trades_1m) == 30
+    assert len(index.trailing_trades(cutoff, 60)) == 60
+    assert fast.trades_1m == index.trailing_trades(cutoff, 30)
 
 
 def test_index_excludes_interval_that_only_opens_at_cutoff():
