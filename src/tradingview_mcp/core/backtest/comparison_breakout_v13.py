@@ -7,6 +7,7 @@ expansion and funding crowding.  It never reads future candles or realized PnL.
 from __future__ import annotations
 
 from decimal import Decimal
+from pathlib import Path
 from typing import Any, Mapping, Optional
 
 from tradingview_mcp.core.backtest.comparison_volatility_expansion_v1 import (
@@ -14,6 +15,7 @@ from tradingview_mcp.core.backtest.comparison_volatility_expansion_v1 import (
 )
 
 V13_NAME = "V13_REGIME_BREAKOUT_PERSISTENT_FLOW_OI"
+RESERVED_HOLDOUT_MARKER = "holdout_mrv2_120d"
 CVD_FLAT_BAND = Decimal("1")
 TAKER_IMBALANCE_MIN = Decimal("0.05")
 FUNDING_EXTREME_ABS = Decimal("0.0005")
@@ -25,6 +27,14 @@ OI_RELATION = {
     "LONG": "PRICE_UP_OI_UP",
     "SHORT": "PRICE_DOWN_OI_UP",
 }
+
+
+def validate_v13_development_cache_root(cache_root: Path) -> Path:
+    """Fail closed when development points at the reserved outcome-unseen cache."""
+    resolved = cache_root.resolve()
+    if RESERVED_HOLDOUT_MARKER in str(resolved).lower():
+        raise ValueError("V13 development runner refuses the reserved 120d holdout cache")
+    return resolved
 
 
 def _d(value: Any) -> Optional[Decimal]:
