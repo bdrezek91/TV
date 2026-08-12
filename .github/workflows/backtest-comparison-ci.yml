@@ -1,0 +1,131 @@
+name: Backtest Comparison CI
+
+on:
+  pull_request:
+    branches: [claude/tradingview-mcp-copy-xhu9s7, trading-system-blocks-1-3, agent/backtest-comparison-v1]
+    paths:
+      - 'src/tradingview_mcp/core/backtest/**'
+      - 'src/tradingview_mcp/core/database/orderbook_retention.py'
+      - 'src/tradingview_mcp/workers/orderbook_maintenance_main.py'
+      - 'docker-compose.yml'
+      - 'scripts/research/backtest_comparison_v1.py'
+      - 'scripts/research/backtest_comparison_guarded_v1.py'
+      - 'scripts/research/backfill_extended_history_v1.py'
+      - 'scripts/research/backtest_comparison_extended_v1.py'
+      - 'scripts/research/backtest_research_v2_candidate_v1.py'
+      - 'scripts/research/backtest_research_v2_candidate_v2.py'
+      - 'scripts/research/backtest_research_v2_candidate_v3_setup_isolation.py'
+      - 'scripts/research/backtest_research_v2_candidate_v4_mean_reversion_forensics.py'
+      - 'scripts/research/backtest_research_v2_candidate_v5_fakeout.py'
+      - 'scripts/research/backtest_research_v2_candidate_v6_momentum.py'
+      - 'scripts/research/backtest_research_v2_candidate_v7_cvd_divergence.py'
+      - 'scripts/research/backtest_research_v2_candidate_v8_vwap_reversion.py'
+      - 'scripts/research/backtest_research_v2_candidate_v9_volatility_expansion.py'
+      - 'scripts/research/backtest_research_v2_final_discovery_v10_v12.py'
+      - 'scripts/research/backtest_research_v2_mean_reversion_holdout_v1.py'
+      - 'scripts/research/backtest_research_v2_mean_reversion_v2_development.py'
+      - 'scripts/research/backtest_research_v2_mean_reversion_v2_holdout_120d.py'
+      - 'scripts/research/backtest_research_v13_breakout_development.py'
+      - 'scripts/research/backtest_research_v14_breakout_development.py'
+      - 'scripts/research/export_mean_reversion_v1_postmortem.py'
+      - 'scripts/research/validate_extended_cache_no_lookahead.py'
+      - 'scripts/research/validate_bybit_data_fidelity.py'
+      - 'scripts/research/adjudicate_bybit_trade_volume_mismatches.py'
+      - 'scripts/research/diagnose_research_v2_cadence_v1.py'
+      - 'scripts/research/render_backtest_comparison_report_v1.py'
+      - 'tests/unit/trading/test_*comparison*v1.py'
+      - 'tests/unit/trading/test_comparison_discovery_v10_v12.py'
+      - 'tests/unit/trading/test_comparison_holdout_v1.py'
+      - 'tests/unit/trading/test_comparison_mean_reversion_v2.py'
+      - 'tests/unit/trading/test_comparison_mean_reversion_v2_holdout.py'
+      - 'tests/unit/trading/test_comparison_breakout_v13.py'
+      - 'tests/unit/trading/test_backtest_research_v13_breakout_development.py'
+      - 'tests/unit/trading/test_comparison_breakout_v14.py'
+      - 'tests/unit/trading/test_extended_history*.py'
+      - 'tests/unit/trading/test_validate_extended_cache_no_lookahead.py'
+      - 'tests/unit/trading/test_orderbook_retention.py'
+      - 'tests/unit/trading/test_tv_shadow_v1.py'
+      - '.github/workflows/backtest-comparison-ci.yml'
+  workflow_dispatch:
+
+jobs:
+  comparison-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - name: Install package and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+          python -m pip install pytest pytest-asyncio
+      - name: Validate Docker Compose configuration
+        run: docker compose config --quiet
+      - name: Run comparison and TradingView regression tests
+        run: |
+          pytest -q \
+            tests/unit/trading/test_backtest_comparison_v1.py \
+            tests/unit/trading/test_comparison_execution_v1.py \
+            tests/unit/trading/test_comparison_history_v1.py \
+            tests/unit/trading/test_comparison_history_index_v1.py \
+            tests/unit/trading/test_comparison_diagnostics_v1.py \
+            tests/unit/trading/test_comparison_funnel_v1.py \
+            tests/unit/trading/test_comparison_candidate_v1.py \
+            tests/unit/trading/test_comparison_candidate_semantic_v1.py \
+            tests/unit/trading/test_comparison_fakeout_v1.py \
+            tests/unit/trading/test_comparison_momentum_v1.py \
+            tests/unit/trading/test_comparison_cvd_divergence_v1.py \
+            tests/unit/trading/test_comparison_vwap_reversion_v1.py \
+            tests/unit/trading/test_comparison_volatility_expansion_v1.py \
+            tests/unit/trading/test_comparison_discovery_v10_v12.py \
+            tests/unit/trading/test_comparison_holdout_v1.py \
+            tests/unit/trading/test_comparison_postmortem_v1.py \
+            tests/unit/trading/test_comparison_mean_reversion_v2.py \
+            tests/unit/trading/test_comparison_mean_reversion_v2_holdout.py \
+            tests/unit/trading/test_comparison_breakout_v13.py \
+            tests/unit/trading/test_backtest_research_v13_breakout_development.py \
+            tests/unit/trading/test_comparison_breakout_v14.py \
+            tests/unit/trading/test_comparison_lifecycle_v1.py \
+            tests/unit/trading/test_comparison_report_v1.py \
+            tests/unit/trading/test_w5_comparison_diagnostics_v1.py \
+            tests/unit/trading/test_backtest_comparison_bybit_data_fidelity_v1.py \
+            tests/unit/trading/test_backtest_comparison_bybit_trade_adjudicator_v1.py \
+            tests/unit/trading/test_extended_history_v1.py \
+            tests/unit/trading/test_extended_history_downloader_v1.py \
+            tests/unit/trading/test_extended_history_loader_v1.py \
+            tests/unit/trading/test_validate_extended_cache_no_lookahead.py \
+            tests/unit/trading/test_orderbook_retention.py \
+            tests/unit/trading/test_tv_shadow_v1.py \
+            tests/unit/trading/test_tradingview_context.py
+      - name: Validate research CLIs import and parse
+        run: |
+          python scripts/research/backtest_comparison_v1.py --help >/dev/null
+          python scripts/research/backtest_comparison_guarded_v1.py --help >/dev/null
+          python scripts/research/backfill_extended_history_v1.py --help >/dev/null
+          python scripts/research/backtest_comparison_extended_v1.py --help >/dev/null
+          python scripts/research/backtest_research_v2_candidate_v1.py --help >/dev/null
+          python scripts/research/backtest_research_v2_candidate_v2.py --help >/dev/null
+          python scripts/research/backtest_research_v2_candidate_v3_setup_isolation.py --help >/dev/null
+          python scripts/research/backtest_research_v2_candidate_v4_mean_reversion_forensics.py --help >/dev/null
+          python scripts/research/backtest_research_v2_candidate_v5_fakeout.py --help >/dev/null
+          python scripts/research/backtest_research_v2_candidate_v6_momentum.py --help >/dev/null
+          python scripts/research/backtest_research_v2_candidate_v7_cvd_divergence.py --help >/dev/null
+          python scripts/research/backtest_research_v2_candidate_v8_vwap_reversion.py --help >/dev/null
+          python scripts/research/backtest_research_v2_candidate_v9_volatility_expansion.py --help >/dev/null
+          python scripts/research/backtest_research_v2_final_discovery_v10_v12.py --help >/dev/null
+          python scripts/research/backtest_research_v2_mean_reversion_holdout_v1.py --help >/dev/null
+          python scripts/research/backtest_research_v2_mean_reversion_v2_development.py --help >/dev/null
+          python scripts/research/backtest_research_v2_mean_reversion_v2_holdout_120d.py --help >/dev/null
+          python scripts/research/backtest_research_v13_breakout_development.py --help >/dev/null
+          python scripts/research/backtest_research_v14_breakout_development.py --help >/dev/null
+          python scripts/research/export_mean_reversion_v1_postmortem.py --help >/dev/null
+          python scripts/research/validate_extended_cache_no_lookahead.py --help >/dev/null
+          python scripts/research/validate_bybit_data_fidelity.py --help >/dev/null
+          python scripts/research/adjudicate_bybit_trade_volume_mismatches.py --help >/dev/null
+          python scripts/research/diagnose_research_v2_cadence_v1.py --help >/dev/null
+          python scripts/research/render_backtest_comparison_report_v1.py --help >/dev/null
+          python -c 'from tradingview_mcp.workers.orderbook_maintenance_main import policy_from_env; policy_from_env()'

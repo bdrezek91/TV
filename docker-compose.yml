@@ -1,6 +1,68 @@
-version: '3.8'
+# ---------------------------------------------------------------------------
+# tradingview-mcp: unchanged service, unchanged port (8080->8000), unchanged
+# image/connector contract. Block 1 adds everything below it: a shared
+# "trading-app" image (same Dockerfile, different CMD per worker), Postgres,
+# Redis, and Prometheus. analysis-worker/paper-broker are infra-only stubs
+# in Block 1 (real logic lands in Block 2) but already run, healthcheck, and
+# expose metrics on the private network.
+# ---------------------------------------------------------------------------
+
+x-trading-env: &trading-env
+  TRADING_MODE: ${TRADING_MODE:-paper}
+  BYBIT_TESTNET: ${BYBIT_TESTNET:-false}
+  BYBIT_MARKET: ${BYBIT_MARKET:-linear}
+  TRADING_SYMBOLS: ${TRADING_SYMBOLS:-BTCUSDT}
+  DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://trading:change_me@postgres:5432/trading}
+  REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+  COLLECT_TRADES: ${COLLECT_TRADES:-true}
+  COLLECT_ORDERBOOK: ${COLLECT_ORDERBOOK:-true}
+  ORDERBOOK_DEPTH: ${ORDERBOOK_DEPTH:-50}
+  COLLECT_LIQUIDATIONS: ${COLLECT_LIQUIDATIONS:-true}
+  COLLECT_TICKERS: ${COLLECT_TICKERS:-true}
+  COLLECT_KLINES: ${COLLECT_KLINES:-true}
+  FEATURE_INTERVAL_SECONDS: ${FEATURE_INTERVAL_SECONDS:-60}
+  STRATEGY_INTERVAL_SECONDS: ${STRATEGY_INTERVAL_SECONDS:-300}
+  OI_POLL_INTERVAL_SECONDS: ${OI_POLL_INTERVAL_SECONDS:-300}
+  FUNDING_POLL_INTERVAL_SECONDS: ${FUNDING_POLL_INTERVAL_SECONDS:-300}
+  ORDERBOOK_SNAPSHOT_INTERVAL_SECONDS: ${ORDERBOOK_SNAPSHOT_INTERVAL_SECONDS:-5}
+  MAX_DATA_AGE_TRADES_SECONDS: ${MAX_DATA_AGE_TRADES_SECONDS:-10}
+  MAX_DATA_AGE_ORDERBOOK_SECONDS: ${MAX_DATA_AGE_ORDERBOOK_SECONDS:-5}
+  MAX_DATA_AGE_OI_SECONDS: ${MAX_DATA_AGE_OI_SECONDS:-600}
+  MAX_DATA_AGE_CANDLES_SECONDS: ${MAX_DATA_AGE_CANDLES_SECONDS:-180}
+  ORDERBOOK_RETENTION_ENABLED: ${ORDERBOOK_RETENTION_ENABLED:-true}
+  ORDERBOOK_HIGH_RES_RETENTION_DAYS: ${ORDERBOOK_HIGH_RES_RETENTION_DAYS:-30}
+  ORDERBOOK_ARCHIVE_RETENTION_DAYS: ${ORDERBOOK_ARCHIVE_RETENTION_DAYS:-180}
+  ORDERBOOK_DOWNSAMPLE_SECONDS: ${ORDERBOOK_DOWNSAMPLE_SECONDS:-60}
+  ORDERBOOK_RETENTION_BATCH_SIZE: ${ORDERBOOK_RETENTION_BATCH_SIZE:-5000}
+  ORDERBOOK_RETENTION_MAX_BATCHES_PER_PASS: ${ORDERBOOK_RETENTION_MAX_BATCHES_PER_PASS:-20}
+  ORDERBOOK_MAINTENANCE_INTERVAL_SECONDS: ${ORDERBOOK_MAINTENANCE_INTERVAL_SECONDS:-21600}
+  PAPER_STARTING_BALANCE: ${PAPER_STARTING_BALANCE:-10000}
+  RISK_PER_TRADE_PCT: ${RISK_PER_TRADE_PCT:-0.25}
+  MAX_DAILY_LOSS_PCT: ${MAX_DAILY_LOSS_PCT:-1.00}
+  MAX_OPEN_POSITIONS: ${MAX_OPEN_POSITIONS:-1}
+  MAX_TRADES_PER_DAY: ${MAX_TRADES_PER_DAY:-5}
+  MAX_CONSECUTIVE_LOSSES: ${MAX_CONSECUTIVE_LOSSES:-3}
+  MIN_RISK_REWARD: ${MIN_RISK_REWARD:-2.0}
+  MAX_LEVERAGE: ${MAX_LEVERAGE:-3}
+  SIGNAL_MIN_SCORE: ${SIGNAL_MIN_SCORE:-75}
+  SIGNAL_COOLDOWN_MINUTES: ${SIGNAL_COOLDOWN_MINUTES:-45}
+  SIGNAL_EXPIRY_MINUTES: ${SIGNAL_EXPIRY_MINUTES:-60}
+  ENABLE_LIQUIDATION_REVERSAL: ${ENABLE_LIQUIDATION_REVERSAL:-false}
+  RAW_DATA_ARCHIVE_ENABLED: ${RAW_DATA_ARCHIVE_ENABLED:-false}
+  RAW_DATA_ARCHIVE_PATH: ${RAW_DATA_ARCHIVE_PATH:-/data/archive}
+  TELEGRAM_ENABLED: ${TELEGRAM_ENABLED:-false}
+  TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+  TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+  STRATEGY_CONFIG_PATH: /app/config/strategies/v1.yaml
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
 
 services:
+  # ── Existing service: untouched port, image, transport, connector contract ──
   tradingview-mcp:
     build: .
     image: atilaahmet/tradingview-mcp:latest
@@ -9,6 +71,202 @@ services:
       - "8080:8000"
     restart: unless-stopped
     environment:
-      # Optional: Add any future API keys or environment variables here
       - PORT=8000
       - HOST=0.0.0.0
+    volumes:
+      - trading-research-artifacts:/app/artifacts
+    logging: *default-logging
+    networks:
+      - trading-net
+
+  # ── Block 1: data infrastructure ─────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: trading-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: trading
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
+      POSTGRES_DB: trading
+    volumes:
+      - trading-postgres-data:/var/lib/postgresql/data
+    # Not published to the host by default — only reachable from the
+    # private trading-net network, per the plan's "no public exposure
+    # unless required" rule. Uncomment to debug locally:
+    # ports:
+    #   - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trading -d trading"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *default-logging
+    networks:
+      - trading-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: trading-redis
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *default-logging
+    networks:
+      - trading-net
+
+  bybit-collector:
+    build: .
+    image: atilaahmet/tradingview-mcp:latest
+    container_name: trading-bybit-collector
+    restart: unless-stopped
+    entrypoint: ["python", "-m", "tradingview_mcp.workers.bybit_collector_main"]
+    environment:
+      <<: *trading-env
+      TRADING_METRICS_PORT: "9100"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9100/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    stop_grace_period: 15s
+    logging: *default-logging
+    networks:
+      - trading-net
+
+  # Separate retention worker: it never participates in signal generation and
+  # cannot stop the live collector. Recent orderbook data stays at full 5s
+  # resolution; older history is thinned and eventually expired.
+  orderbook-maintenance:
+    build: .
+    image: atilaahmet/tradingview-mcp:latest
+    container_name: trading-orderbook-maintenance
+    restart: unless-stopped
+    entrypoint: ["python", "-m", "tradingview_mcp.workers.orderbook_maintenance_main"]
+    environment:
+      <<: *trading-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # The base image checks HTTP :8000, but this process is a background
+    # maintenance worker and intentionally exposes no HTTP server.
+    healthcheck:
+      disable: true
+    stop_grace_period: 30s
+    logging: *default-logging
+    networks:
+      - trading-net
+
+  # Infra-only stubs in Block 1 (real Feature/Strategy/Risk engine logic is
+  # Block 2 scope) — they start, stay healthy, and expose a metrics port so
+  # the rest of the stack (Compose dependencies, Prometheus) is already
+  # wired for when Block 2 fills them in.
+  analysis-worker:
+    build: .
+    image: atilaahmet/tradingview-mcp:latest
+    container_name: trading-analysis-worker
+    restart: unless-stopped
+    entrypoint: ["python", "-m", "tradingview_mcp.workers.analysis_worker_main"]
+    environment:
+      <<: *trading-env
+      TRADING_METRICS_PORT: "9100"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9101/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    stop_grace_period: 15s
+    logging: *default-logging
+    networks:
+      - trading-net
+
+  paper-broker:
+    build: .
+    image: atilaahmet/tradingview-mcp:latest
+    container_name: trading-paper-broker
+    restart: unless-stopped
+    entrypoint: ["python", "-m", "tradingview_mcp.workers.paper_broker_main"]
+    environment:
+      <<: *trading-env
+      TRADING_METRICS_PORT: "9100"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9102/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    stop_grace_period: 15s
+    logging: *default-logging
+    networks:
+      - trading-net
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: trading-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - trading-prometheus-data:/prometheus
+    # Not published by default; expose only if you need to browse the UI
+    # directly instead of through Grafana.
+    # ports:
+    #   - "127.0.0.1:9090:9090"
+    logging: *default-logging
+    networks:
+      - trading-net
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: trading-grafana
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-change_me}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - trading-grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "127.0.0.1:3000:3000"
+    logging: *default-logging
+    networks:
+      - trading-net
+
+networks:
+  # `external: true` -- this network is created ONCE and never torn down
+  # by `docker compose down`/recreate cycles. It's shared with a Caddy
+  # reverse proxy from a completely separate Compose project (tvscanai.pl
+  # -> Caddy -> this network -> tradingview-mcp:8000) that manually
+  # attaches to it by name. If Compose owned this network's lifecycle,
+  # every `docker compose down` (or certain recreate paths) would destroy
+  # and recreate it, silently dropping that manual attachment and taking
+  # the public domain down with a 502 until someone manually reconnects
+  # it -- exactly what happened before this was made external.
+  trading-net:
+    external: true
+    name: tradingview-mcp_trading-net
+
+volumes:
+  trading-postgres-data:
+  trading-prometheus-data:
+  trading-grafana-data:
+  trading-research-artifacts:

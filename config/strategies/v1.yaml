@@ -1,0 +1,70 @@
+# Strategy/scoring configuration — version "v1".
+#
+# Every StrategySignal persists `strategy_config_version` = the `version`
+# key below, so scoring/threshold changes are always attributable to a
+# specific, reviewable config file rather than silently drifting. Bump
+# `version` and add a new file (v2.yaml) rather than editing weights here
+# in place, once this version has live signals attached to it.
+#
+# Score is 0-100 and NEVER overrides hard gates (core/analysis/hard_gates.py)
+# — a setup can score 100 and still be REJECTED if a hard gate fails.
+
+version: "v1"
+
+scoring:
+  weights:
+    trend_alignment: 15      # 4h/1h trend agreement
+    entry_structure: 15      # 15m pullback/breakout structure quality
+    volume: 10
+    cvd_delta: 10
+    open_interest: 10
+    order_book: 10
+    retest_pullback: 10
+    invalidation_quality: 5
+    risk_reward: 10
+    funding_basis: 5
+  # weights must sum to 100 — enforced at load time.
+
+hard_gates:
+  max_spread_bps: 8
+  min_risk_reward: 2.0
+  max_data_age_trades_seconds: 10
+  max_data_age_orderbook_seconds: 5
+  max_data_age_oi_seconds: 600
+  max_data_age_candles_seconds: 180
+
+risk:
+  risk_per_trade_pct: 0.25
+  max_daily_loss_pct: 1.00
+  max_open_positions: 1
+  max_trades_per_day: 5
+  max_consecutive_losses: 3
+  max_leverage: 3
+  min_risk_reward: 2.0
+
+regimes:
+  allowed_by_strategy:
+    trend_pullback: [TREND_UP, TREND_DOWN]
+    breakout_retest: [TREND_UP, TREND_DOWN, RANGE, BREAKOUT_ATTEMPT]
+    liquidation_reversal: [HIGH_VOLATILITY, CHAOTIC]
+  never_tradeable: [CHAOTIC, LOW_LIQUIDITY, NO_DATA]
+
+strategies:
+  trend_pullback:
+    enabled: true
+    setup_name: trend_pullback
+  breakout_retest:
+    enabled: true
+    setup_name: breakout_retest
+  liquidation_reversal:
+    # Master on/off switch is the ENABLE_LIQUIDATION_REVERSAL env var
+    # (core/config/trading_settings.py); this stays illustrative/aligned
+    # with that default. Even when enabled, this strategy is marked
+    # experimental=true and the orchestrator refuses to create paper
+    # orders for it, per the plan.
+    enabled: false
+    setup_name: liquidation_exhaustion_reversal
+    experimental: true
+
+signal_expiry_minutes: 60
+signal_cooldown_minutes: 45

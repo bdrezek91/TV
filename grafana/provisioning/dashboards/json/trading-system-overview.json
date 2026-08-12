@@ -1,0 +1,103 @@
+{
+  "title": "Trading System Overview",
+  "uid": "trading-system-overview",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "timezone": "utc",
+  "time": { "from": "now-6h", "to": "now" },
+  "refresh": "30s",
+  "tags": ["trading-system", "block3"],
+  "panels": [
+    {
+      "id": 1, "type": "stat", "title": "Bybit WebSocket Connected",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [{ "expr": "bybit_ws_connected", "legendFormat": "{{symbol}}" }],
+      "fieldConfig": { "defaults": { "mappings": [
+        { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
+      ] }, "overrides": [] }
+    },
+    {
+      "id": 2, "type": "stat", "title": "Order Book Consistency Errors (rate)",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [{ "expr": "rate(orderbook_consistency_errors_total[5m])", "legendFormat": "{{symbol}}" }]
+    },
+    {
+      "id": 3, "type": "stat", "title": "Last Message Age (s)",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [{ "expr": "bybit_last_message_age_seconds", "legendFormat": "{{symbol}}/{{topic}}" }]
+    },
+    {
+      "id": 4, "type": "stat", "title": "Reconnects (24h)",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [{ "expr": "increase(bybit_reconnects_total[24h])", "legendFormat": "{{symbol}}" }]
+    },
+    {
+      "id": 5, "type": "timeseries", "title": "Data Freshness / Message Volume",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [{ "expr": "rate(bybit_messages_total[5m])", "legendFormat": "{{symbol}}/{{topic}}" }]
+    },
+    {
+      "id": 6, "type": "timeseries", "title": "Open Interest & Funding",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        { "expr": "collector_errors_total", "legendFormat": "collector_errors {{component}}" },
+        { "expr": "rest_poll_errors_total", "legendFormat": "rest_poll_errors {{endpoint}}" }
+      ]
+    },
+    {
+      "id": 7, "type": "timeseries", "title": "Signals Generated vs Rejected",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        { "expr": "rate(signals_generated_total[15m])", "legendFormat": "generated {{symbol}}/{{setup_name}}/{{direction}}" },
+        { "expr": "rate(signals_rejected_total[15m])", "legendFormat": "rejected {{symbol}}/{{setup_name}}" }
+      ]
+    },
+    {
+      "id": 8, "type": "timeseries", "title": "Feature Calculations & Strategy Evaluations",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        { "expr": "rate(feature_calculations_total[15m])", "legendFormat": "features {{symbol}}" },
+        { "expr": "rate(strategy_evaluations_total[15m])", "legendFormat": "evaluations {{symbol}}/{{setup_name}}" }
+      ]
+    },
+    {
+      "id": 9, "type": "timeseries", "title": "Paper Equity",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 20 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [{ "expr": "paper_equity" }]
+    },
+    {
+      "id": 10, "type": "timeseries", "title": "Daily Drawdown %",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 20 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [{ "expr": "daily_drawdown_pct" }]
+    },
+    {
+      "id": 11, "type": "timeseries", "title": "Paper Orders (rate)",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 20 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [{ "expr": "rate(paper_orders_total[1h])", "legendFormat": "{{symbol}}/{{direction}}/{{order_type}}" }]
+    },
+    {
+      "id": 12, "type": "stat", "title": "Database Write Errors (24h)",
+      "gridPos": { "h": 4, "w": 12, "x": 0, "y": 28 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [{ "expr": "increase(database_write_errors_total[24h])", "legendFormat": "{{table}}" }]
+    },
+    {
+      "id": 13, "type": "stat", "title": "Cumulative Paper PnL Magnitude Processed",
+      "gridPos": { "h": 4, "w": 12, "x": 12, "y": 28 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [{ "expr": "paper_pnl_total", "legendFormat": "{{symbol}}" }]
+    }
+  ]
+}

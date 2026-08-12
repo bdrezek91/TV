@@ -1,0 +1,307 @@
+# Block 1 Report — Audit, Infrastructure & Data
+
+Date: 2026-08-08
+Scope executed: **BLOK 1 — audyt, infrastruktura i dane** only (per the
+uploaded plan). Blocks 2 and 3 were **not** started.
+
+**Operating constraint for this session:** no SSH/VPS access. Per the
+user's earlier decision (documented in the task brief), Block 1 was
+developed and validated entirely **locally** in this worktree/branch, up to
+"ready to deploy." Nothing was pushed, committed, or deployed anywhere.
+
+## 1. Audit summary
+
+- Branch: `worktree-agent-aae960b2d318ba597`; working tree was clean at
+  start (`git log -5`: single commit `be19006 Copy tradingview-mcp from
+  atilaahmettaner/tradingview-mcp`).
+- `server.py` (1122 lines) confirmed to already be a thin FastMCP routing
+  layer — every `@mcp.tool()` handler delegates to `core/services/*`; no
+  business logic lives in the handlers. This pattern was followed exactly
+  for Block 1's new code (no MCP tools added yet, per plan).
+- `core/errors.py`'s structured error-envelope pattern
+  (`{"error": {"code", "message", ...}}` via `make_error`) was reviewed and
+  is available for future MCP tools (Block 3) but wasn't needed in Block 1
+  since no tools were added.
+- Existing test suite: 227 tests, all passing before any change
+  (`uv run pytest`).
+- Dockerfile: two-stage build, `python:3.11-slim`, `uv pip install --system
+  .`, non-root user, `HEALTHCHECK` on `/health`, `ENTRYPOINT
+  ["tradingview-mcp"]`, port 8000 internally. **Confirmed unchanged**
+  (`git diff Dockerfile` is empty).
+- `docker-compose.yml` previously had exactly one service
+  (`tradingview-mcp`, `8080:8000`, `restart: unless-stopped`). That
+  service's `build`/`image`/`ports`/`environment` are byte-for-byte
+  unchanged; only new services were appended.
+- Existing reusable functions for later blocks were catalogued (see
+  `docs/trading-system/IMPLEMENTATION_PLAN.md` §1) — multi-timeframe
+  analysis, volume scanners, Bollinger, futures tools, backtest/walk-forward,
+  indicator math.
+- The "existing Claude routine" (the ~2h scan routine) lives outside this
+  git repository as a scheduling artifact in a different system — per
+  instructions, it was not searched for, inspected, or modified.
+
+## 2. Architecture delivered
+
+See `docs/trading-system/IMPLEMENTATION_PLAN.md` for the full module-by-
+module breakdown. Summary: a new `core/config`, `core/database`,
+`core/market_data/bybit`, `core/observability`, two new files in
+`core/services/`, and a new `workers/` package, all independent of
+`server.py` and importable without it. Nothing in Block 1 talks to the
+existing MCP server over HTTP — the collector/poller/workers call
+`core/services`/`core/database` functions directly, per the plan's rule.
+
+## 3. New files (34)
+
+```
+docs/trading-system/IMPLEMENTATION_PLAN.md
+docs/trading-system/BLOCK1_REPORT.md
+alembic.ini
+alembic/env.py
+alembic/script.py.mako
+alembic/versions/0001_initial_schema.py
+prometheus/prometheus.yml
+src/tradingview_mcp/core/config/__init__.py
+src/tradingview_mcp/core/config/trading_settings.py
+src/tradingview_mcp/core/database/__init__.py
+src/tradingview_mcp/core/database/base.py
+src/tradingview_mcp/core/database/session.py
+src/tradingview_mcp/core/database/models/__init__.py
+src/tradingview_mcp/core/database/models/market_data.py
+src/tradingview_mcp/core/database/models/analysis.py
+src/tradingview_mcp/core/database/models/signals.py
+src/tradingview_mcp/core/database/models/paper_trading.py
+src/tradingview_mcp/core/database/models/system.py
+src/tradingview_mcp/core/database/repositories/__init__.py
+src/tradingview_mcp/core/database/repositories/market_data_repository.py
+src/tradingview_mcp/core/market_data/__init__.py
+src/tradingview_mcp/core/market_data/bybit/__init__.py
+src/tradingview_mcp/core/market_data/bybit/schemas.py
+src/tradingview_mcp/core/market_data/bybit/orderbook.py
+src/tradingview_mcp/core/market_data/bybit/aggregation.py
+src/tradingview_mcp/core/market_data/bybit/reconnect.py
+src/tradingview_mcp/core/market_data/bybit/archive.py
+src/tradingview_mcp/core/market_data/bybit/client.py
+src/tradingview_mcp/core/market_data/bybit/websocket_collector.py
+src/tradingview_mcp/core/market_data/bybit/rest_poller.py
+src/tradingview_mcp/core/observability/__init__.py
+src/tradingview_mcp/core/observability/metrics.py
+src/tradingview_mcp/core/services/bybit_market_service.py
+src/tradingview_mcp/core/services/system_health_service.py
+src/tradingview_mcp/workers/__init__.py
+src/tradingview_mcp/workers/bybit_collector_main.py
+src/tradingview_mcp/workers/analysis_worker_main.py
+src/tradingview_mcp/workers/paper_broker_main.py
+tests/fixtures/bybit/*.json (6 files)
+tests/unit/trading/*.py (8 files incl. conftest.py + __init__.py)
+```
+
+## 4. Changed files (4)
+
+- `pyproject.toml` — added 9 new runtime dependencies (see §7 of the plan
+  doc); zero changes to existing dependency pins.
+- `uv.lock` — regenerated by `uv sync` to include the new dependency
+  closure.
+- `.env.example` — appended a new, clearly-delimited trading-system
+  section; every existing key untouched.
+- `docker-compose.yml` — appended `postgres`, `redis`, `bybit-collector`,
+  `analysis-worker`, `paper-broker`, `prometheus`, `grafana` plus a shared
+  `trading-net` network and named volumes; `tradingview-mcp`'s block is
+  unchanged (also dropped the obsolete top-level `version:` key, which was
+  a Compose deprecation warning, not a behavior change).
+- `src/tradingview_mcp/server.py` — **NOT changed** (`git diff` empty,
+  confirmed explicitly).
+
+## 5. Migrations
+
+`alembic/versions/0001_initial_schema.py` — creates 17 trading-system
+tables + the `signal_status` enum. Validated three ways:
+1. Offline SQL rendering (`alembic upgrade head --sql` /
+   `alembic downgrade 0001:base --sql`) — compiles cleanly against the
+   PostgreSQL dialect.
+2. **Live run against a real local PostgreSQL 16** (installed directly in
+   this sandbox — Docker's Postgres image could not be pulled here, see
+   §7): `upgrade head` → 18 tables present (17 + `alembic_version`) →
+   `downgrade base` → back to 1 table (`alembic_version`) →
+   `upgrade head` again → clean re-apply. Confirms both non-destructiveness
+   and reversibility.
+3. `strategy_signals` schema checked field-by-field against the plan's
+   required list — exact match, plus the 10-value status enum and the 5
+   required indexes.
+
+## 6. New services/containers
+
+`bybit-collector`, `analysis-worker` (infra-only stub), `paper-broker`
+(infra-only stub), `postgres`, `redis`, `prometheus`, `grafana` — 7 new
+Compose services, all `restart: unless-stopped`, healthchecked, on a
+private `trading-net` bridge network, log-rotated (10MB×3). Postgres and
+Redis are not published to the host by default. `tradingview-mcp` is
+unaffected and has no dependency edge to any of them.
+
+## 7. Test results
+
+- **New Block 1 test suite: 57/57 passing** in
+  `tests/unit/trading/` — covers every one of the plan's 20 required
+  scenarios (order book snapshot/add/update/zero-remove/reset/gap
+  detection/inconsistency, reconnect, resubscribe, trade dedup, buy/sell
+  taker mapping, liquidation side mapping [with an explicit test that
+  Bybit's `S` field is the *forced-order* side, opposite the liquidated
+  position], 1s/1m aggregation, DB writes, idempotent backfill, staleness,
+  config validation, paper-only enforcement, health check).
+- Repository/DB tests (`test_repository_db.py`, `test_health.py`'s
+  DB-backed case) ran against a **real local PostgreSQL 16** — not mocked —
+  proving idempotent upsert, "never overwrite newer with older" for
+  candles and derivatives snapshots, and duplicate-insert prevention.
+  These tests auto-skip (rather than fail) if no Postgres is reachable, so
+  the suite stays hermetic in environments without one.
+- **Full regression run: 284/284 tests passing** (227 pre-existing + 57
+  new), 8 `stress` tests correctly deselected by default (unchanged
+  behavior — they require real TradingView upstream and are opt-in only).
+- No real Bybit network access was used anywhere in the test suite — all
+  WebSocket/REST interactions are driven by `FakeWSTransport`/fake REST
+  clients loaded from `tests/fixtures/bybit/*.json`.
+
+## 8. Docker build result
+
+**Could not be executed in this sandbox.** `docker pull` fails with `403
+Forbidden` from Docker Hub's CDN for *every* image tested — `postgres:16-
+alpine`, `redis:7-alpine`, and even `python:3.11-slim` (the existing,
+unmodified Dockerfile's own base image) — regardless of the configured
+HTTPS proxy, and no images are pre-cached locally in this environment. This
+is a sandbox network-egress limitation, not a defect introduced by Block 1:
+the *existing* Dockerfile is equally unbuildable here, before any of our
+changes. What **was** validated:
+- `docker compose config` — merged configuration renders with **zero
+  errors or warnings**.
+- The Dockerfile itself is byte-for-byte unchanged from before Block 1.
+- All new services build from that same, already-passing Dockerfile — only
+  their `entrypoint:` differs (`python -m tradingview_mcp.workers.X`).
+
+**Action required on the real VPS** (which has normal registry access):
+run `docker compose build && docker compose up -d` there as the first
+real-network validation of the container layer — see run instructions
+below.
+
+## 9. Healthchecks
+
+- `bybit-collector`/`analysis-worker`/`paper-broker` each expose a
+  `/health` (JSON) and `/metrics` (Prometheus) endpoint on their own port
+  (9100/9101/9102) via a lightweight stdlib `http.server`, with a Compose
+  `healthcheck:` hitting `/health`.
+- `postgres`: `pg_isready`; `redis`: `redis-cli ping`. Both configured with
+  `depends_on: condition: service_healthy` gating for the worker services.
+- `system_health_service.build_health_report()` composes config validity +
+  DB connectivity + Redis connectivity + (if provided) live collector
+  per-symbol state into one `overall_status` (`HEALTHY` / `DEGRADED` /
+  `DATABASE_DOWN` / `CONFIG_INVALID`) — this is the seam Block 3's
+  `trading_system_health` MCP tool will call.
+- None of this could be exercised through actual running containers here
+  (see §8), but the health-report logic itself has direct unit-test
+  coverage against the real local Postgres.
+
+## 10. Sample data written to the database (local Postgres)
+
+From `test_repository_db.py`'s live run — example rows actually inserted
+and read back during verification (not fixtures — real INSERT/SELECT
+round-trips):
+
+```
+candles:  symbol=BTCUSDT interval=1  open=1 high=2 low=0.5 close=1.5 volume=10
+          source=rest_backfill  (idempotent re-write of an older
+          source_timestamp correctly skipped, newer row preserved)
+
+derivatives_snapshots: symbol=BTCUSDT open_interest=100 funding_rate=0.0001
+          (second insert with the identical source_timestamp correctly
+          skipped — exactly 1 row present after two calls)
+
+trade_aggregates: symbol=BTCUSDT bucket_seconds=1 buy_taker_volume=1.5
+          sell_taker_volume=0.5 delta=1.0 trade_count=3
+
+liquidation_aggregates: symbol=BTCUSDT bucket_seconds=1 long_liq_value=1000
+          short_liq_value=500 imbalance=0.33
+
+orderbook_feature_snapshots: symbol=BTCUSDT best_bid=68000 best_ask=68001
+          spread=1 mid_price=68000.5 microprice=68000.4 is_consistent=true
+```
+
+## 11. Problems found
+
+- None in the existing codebase requiring a fix — the audit found the
+  existing service/error/test conventions clean and directly reusable.
+- The sandbox's inability to pull any Docker image (§8) was discovered
+  during verification; documented as an environment limitation rather than
+  worked around (per instructions: never disable TLS verification, never
+  route around organization egress policy).
+
+## 12. Problems found & fixed (during Block 1's own development)
+
+- Three of the newly-written tests had test-authoring bugs (not
+  implementation bugs), found and fixed during verification: (1) a
+  trade-dedup assertion double-counted across the 1s/1m/5m rolling
+  buckets, (2) a staleness assertion used a fixture's fixed historical
+  timestamp as if it were "now," (3) a Decimal-vs-string comparison failed
+  because Postgres `NUMERIC(20,8)` legitimately renders trailing zeros. All
+  three are documented inline in the fixed test files.
+
+## 13. Remaining risks
+
+See `docs/trading-system/IMPLEMENTATION_PLAN.md` §10 for the full list:
+no real-VPS validation yet; WebSocket reconnect logic is fixture-tested,
+not live-network-tested; Redis is provisioned but unused until Block 2;
+REST poller backoff is not yet tuned against Bybit's real rate-limit
+signals; the shared Docker image rebuilds redundantly across the 4
+services that declare `build:`.
+
+## 14. VPS resource usage
+
+**Unknown — no VPS access in this session.** Local resource usage instead
+(this sandbox, not representative of the VPS): the local PostgreSQL 16
+instance used for validation, the full test suite (284 tests), and all
+new Python modules ran comfortably within the sandbox's existing resource
+allocation with no memory/CPU pressure observed. Real resource usage
+(especially the WebSocket collector's steady-state footprint and
+Postgres's actual working set once trade/orderbook data accumulates) must
+be measured after deploying to the VPS.
+
+## 15. Run instructions
+
+See `docs/trading-system/IMPLEMENTATION_PLAN.md` §9 (Run / rollback). In
+short, on the VPS: `cp .env.example .env` (fill real secrets) →
+`docker compose build` → bring up `postgres`/`redis` → run
+`alembic upgrade head` → `docker compose up -d` → check
+`docker compose ps` / `docker compose logs -f bybit-collector`.
+`tradingview-mcp` needs no restart and no config change.
+
+## 16. Rollback instructions
+
+See `docs/trading-system/IMPLEMENTATION_PLAN.md` §9. Non-destructive
+rollback: stop the 5 new worker/monitoring services, leave
+postgres/redis/data volumes intact. Full rollback: also stop
+postgres/redis and run `alembic downgrade base`. Code rollback: everything
+in this Block 1 delivery is uncommitted in this worktree — discard the
+branch or `git checkout -- .` to revert instantly; nothing was pushed.
+
+## 17. Proposed Block 2 scope
+
+Per the plan: Feature Engine (price action/volume/CVD/order-book/futures/
+liquidation features + a `data_quality_score`/`is_tradeable` gate), fusing
+Bybit's real-time order-flow context with the existing TradingView MCP's
+multi-timeframe analysis (direct function calls, never HTTP-to-self),
+Market Regime Classifier (9 regimes), Trend Pullback + Breakout/Retest
+strategies (Liquidation Reversal implemented but disabled via
+`ENABLE_LIQUIDATION_REVERSAL=false`), a versioned Scoring Engine
+(`config/strategies/v1.yaml`), hard gates independent of score, a Risk
+Engine independent of any AI/Claude involvement, and a local event-driven
+paper broker (market/limit fills, SL/TP1/TP2, fees/spread/slippage/
+funding, portfolio + daily-risk-state tracking). This will populate the
+schema-only tables from Block 1 and replace the `analysis-worker`/
+`paper-broker` stub loops with real logic.
+
+---
+
+**Block 1 is complete and verified within the limits of this
+no-VPS-access working session.**
+
+> Blok 1 został zakończony i zweryfikowany (lokalnie, bez dostępu do VPS —
+> patrz sekcja 8 i 14 tego raportu). Czy mam rozpocząć Blok 2 obejmujący
+> Feature Engine, klasyfikację rynku, strategie, scoring, Risk Engine i
+> paper trading?
