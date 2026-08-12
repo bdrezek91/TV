@@ -1,7 +1,15 @@
 # V15 — prerejestracja strategii BTC-neutral residual reversion
 
-> Status: `POST_HOLDOUT_DEVELOPMENT_NOT_VALIDATION`. Specyfikacja jest zamrożona
-> przed uruchomieniem V15 na wynikach. Nie jest przeznaczona do handlu live.
+> Status końcowy: `DEVELOPMENT_FAIL`. V15 została zamknięta bez promocji,
+> bez holdoutu i bez prawa do handlu live. Historyczny kontrakt pozostaje
+> niezmieniony dla odtwarzalności. Zobacz `V15_DEVELOPMENT_POSTMORTEM.md`.
+
+## Wynik wykonania
+
+Badanie development wykonane na commicie `d3b9355` nie przeszło zamrożonej
+bramki: wszystkie trzy harmonogramy miały ujemne expectancy i PF poniżej 0,47.
+`holdout_mrv2_120d` pozostał nietknięty. Poniższa specyfikacja jest zapisem
+historycznym i nie może być już dostrajana na tym okresie.
 
 ## Hipoteza
 
