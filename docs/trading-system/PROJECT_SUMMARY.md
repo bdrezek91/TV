@@ -1,13 +1,30 @@
 # Bybit Trading System — Podsumowanie projektu
 
-> **UWAGA: V3–V14 zostały zamknięte bez promocji. V15 jest w fazie
-> POST_HOLDOUT_DEVELOPMENT_NOT_VALIDATION i nie jest przeznaczone do walidacji
-> produkcyjnej ani handlu live. Zobacz `V3_V14_POSTMORTEM.md` i
-> `V15_PREREGISTRATION.md`.**
+> **UWAGA: V3–V14 zostały zamknięte bez promocji. V15 zakończyła development
+> wynikiem `DEVELOPMENT_FAIL` i również została zamknięta bez promocji oraz bez
+> holdoutu. Żadna z tych wersji nie jest przeznaczona do walidacji produkcyjnej
+> ani handlu live. Zobacz `V3_V14_POSTMORTEM.md`, `V15_PREREGISTRATION.md` i
+> `V15_DEVELOPMENT_POSTMORTEM.md`.**
 
 Data ostatniej aktualizacji: 2026-08-12
 Branch: `main` (repo: `bdrezek91/TV`)
 VPS: `~/tradingview-mcp` na `server750497`
+
+## 0. Aktualny stan badań V3–V15
+
+- V3–V14: zamknięte bez promocji; przyczyny opisuje
+  `V3_V14_POSTMORTEM.md`.
+- V15: wdrożono nową hipotezę BTC-neutral residual reversion, runner,
+  zabezpieczenia holdoutu oraz testy jednostkowe i integracyjne.
+- Pełna walidacja repozytorium po implementacji: 540 testów przeszło,
+  25 pominięto zgodnie z konfiguracją, 8 odznaczono; Ruff i CI były zielone.
+- Development V15 wykonano na VPS na już obserwowanym okresie 90 dni.
+  Uzyskano 135/183/225 transakcji w trzech harmonogramach.
+- Wszystkie harmonogramy były stratne: expectancy od -0,1441 R do -0,1664 R,
+  PF od 0,3729 do 0,4699. Klasyfikacja: `DEVELOPMENT_FAIL`.
+- V15 nie kwalifikuje się do holdoutu. `holdout_mrv2_120d` nie został użyty.
+- Następny etap wymaga nowej prerejestracji V16; nie wolno dostrajać V15 po
+  poznaniu jej wyniku.
 
 ## 1. Cel
 

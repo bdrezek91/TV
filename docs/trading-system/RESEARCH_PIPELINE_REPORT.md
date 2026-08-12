@@ -1,14 +1,35 @@
 # Warstwa 1-5 (Research Pipeline) — Raport stanu i weryfikacji
 
-> **UWAGA: V3–V14 zostały zamknięte bez promocji. V15 jest w fazie
-> POST_HOLDOUT_DEVELOPMENT_NOT_VALIDATION i nie jest przeznaczone do walidacji
-> produkcyjnej ani handlu live. Zobacz `V3_V14_POSTMORTEM.md` i
-> `V15_PREREGISTRATION.md`.**
+> **UWAGA: V3–V14 zostały zamknięte bez promocji. V15 zakończyła development
+> wynikiem `DEVELOPMENT_FAIL` i została zamknięta bez holdoutu. Nie jest
+> przeznaczona do walidacji produkcyjnej ani handlu live. Zobacz
+> `V3_V14_POSTMORTEM.md`, `V15_PREREGISTRATION.md` oraz
+> `V15_DEVELOPMENT_POSTMORTEM.md`.**
 
 Data ostatniej aktualizacji: 2026-08-12
 Branch: `main` (repo: `bdrezek91/TV`)
 VPS: `~/tradingview-mcp` na `server750497`
 Historyczne commity opisywanego etapu: `e865867` (Warstwa 5), `b028828` (3 bugfixy), `9dccdbb` (trwały wolumen)
+
+## Wynik najnowszego eksperymentu V15
+
+V15 była osobną od V3–V14, prerejestrowaną hipotezą dwunożnej rewersji
+residualu alt/BTC. Implementacja, runner i testy zostały scalone do `main`
+w PR #7 (commit `d3b9355`). Badanie development na VPS zakończyło się
+`DEVELOPMENT_FAIL`:
+
+- 0/3 harmonogramów z dodatnim expectancy;
+- PF 0,3729–0,4699;
+- expectancy -0,1441 R do -0,1664 R;
+- 95% CI poniżej zera we wszystkich harmonogramach;
+- cadence bez rozbieżności wyników (`common_r_mismatches = 0`);
+- chroniony `holdout_mrv2_120d` pozostał niewykorzystany.
+
+Audyt nie wykazał przypadkowej awarii runnera. Zamrożony kontrakt pozwalał
+wejść przy `|z| >= 2,0` bez górnej granicy, mimo że `|z| >= 3,5` było
+warunkiem stop. To wada hipotezy ujawniona przez wynik, dlatego V15 nie będzie
+retuszowana. Szczegóły i pełna decyzja znajdują się w
+`V15_DEVELOPMENT_POSTMORTEM.md`.
 
 ---
 
