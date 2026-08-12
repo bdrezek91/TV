@@ -46,6 +46,7 @@ jobs:
           uv run python scripts/research/backtest_research_v2_mean_reversion_v2_holdout_120d.py --help >/dev/null
           uv run python scripts/research/backtest_research_v13_breakout_development.py --help >/dev/null
           uv run python scripts/research/backtest_research_v14_breakout_development.py --help >/dev/null
+          uv run python scripts/research/backtest_research_v15_relative_value_development.py --help >/dev/null
           uv run python scripts/research/export_mean_reversion_v1_postmortem.py --help >/dev/null
           uv run python scripts/research/validate_extended_cache_no_lookahead.py --help >/dev/null
           uv run python scripts/research/validate_bybit_data_fidelity.py --help >/dev/null
