@@ -13,7 +13,6 @@ not alter production Research V2 setup detection.
 from __future__ import annotations
 
 from decimal import Decimal
-from types import SimpleNamespace
 from typing import Any, Mapping, Optional
 
 from tradingview_mcp.core.analysis import orderflow_confirmation_v2 as ofc

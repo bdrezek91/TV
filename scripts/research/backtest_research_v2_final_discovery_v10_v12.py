@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Final pre-registered discovery batch: V10-V12 versus frozen Mean Reversion.
 
 This is a read-only 30d discovery runner. It evaluates three new hypotheses
@@ -65,7 +64,7 @@ MIN_FUTURE_EXECUTION = dt.timedelta(hours=12)
 SCHEDULES = {
     "CURRENT_DAYTIME_2H_07_21": tuple(DEFAULT_SCAN_HOURS),
     "FULL_24H_2H": tuple(range(0, 24, 2)),
-    "FULL_24H_1H": tuple(range(0, 24)),
+    "FULL_24H_1H": tuple(range(24)),
 }
 CANDIDATES: dict[str, tuple[str, Callable]] = {
     "V10": ("trade_flow_impulse_continuation", detect_trade_flow_impulse_continuation),

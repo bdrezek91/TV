@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Compare Research V2 opportunity funnel under several scan clocks.
 
 Research-only and cache-only. No network, DB writes, paper state, or execution.
@@ -23,7 +22,7 @@ MIN_FUTURE_EXECUTION = dt.timedelta(hours=12)
 SCHEDULES = {
     "CURRENT_DAYTIME_2H_07_21": tuple(DEFAULT_SCAN_HOURS),
     "FULL_24H_2H": tuple(range(0, 24, 2)),
-    "FULL_24H_1H": tuple(range(0, 24)),
+    "FULL_24H_1H": tuple(range(24)),
 }
 
 

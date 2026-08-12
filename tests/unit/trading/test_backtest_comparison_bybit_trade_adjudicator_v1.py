@@ -3,7 +3,6 @@ from __future__ import annotations
 import datetime as dt
 import gzip
 import importlib.util
-import io
 from decimal import Decimal
 from pathlib import Path
 

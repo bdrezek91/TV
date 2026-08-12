@@ -21,6 +21,8 @@ jobs:
         run: uv sync --dev --locked
       - name: Validate Docker Compose configuration
         run: docker compose config --quiet
+      - name: Run Ruff
+        run: uv run ruff check .
       - name: Run comparison and TradingView regression tests
         run: uv run pytest -v
       - name: Validate research CLIs import and parse

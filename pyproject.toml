@@ -67,12 +67,32 @@ where = ["src"]
 [tool.setuptools.package-data]
 tradingview_mcp = ["coinlist/*.txt"]
 
-[tool.uv]
-dev-dependencies = [
+[dependency-groups]
+dev = [
     "pytest>=9.0.3",
     "pytest-asyncio>=0.24",
+    "ruff>=0.16.2",
 ]
+
+[tool.uv]
 package = true
+
+[tool.ruff]
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "EXE", "F"]
+ignore = [
+    "E701",  # Legacy compact research scripts; expand separately from lint hardening.
+    "E702",  # Legacy compact research scripts; expand separately from lint hardening.
+    "E731",  # Existing local callable aliases are clearer than forced def rewrites here.
+    "E741",  # Mathematical names used in established trading formulas.
+]
+
+[tool.ruff.lint.per-file-ignores]
+"scripts/research/audit_*.py" = ["E402"]  # Audits modify sys.path before their import check.
+"src/tradingview_mcp/core/analysis/risk_manager_v2.py" = ["F401", "F841"]  # Frozen V2 source blob.
+"src/tradingview_mcp/core/analysis/setup_detector_v2.py" = ["F401"]  # Frozen V2 source blob.
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

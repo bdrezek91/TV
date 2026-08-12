@@ -8,19 +8,17 @@ All timestamp columns are timezone-aware and store UTC.
 from __future__ import annotations
 
 import datetime as dt
-import uuid
 
 from sqlalchemy import (
     Boolean,
     DateTime,
-    ForeignKey,
     Index,
     Integer,
     Numeric,
     String,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from tradingview_mcp.core.database.base import Base

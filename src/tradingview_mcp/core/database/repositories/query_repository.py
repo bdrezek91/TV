@@ -9,8 +9,7 @@ used by MCP tool handlers is easy to reason about and test in isolation.
 from __future__ import annotations
 
 import datetime as dt
-from decimal import Decimal
-from typing import Any, Optional, Sequence
+from typing import Optional, Sequence
 from uuid import UUID
 
 from sqlalchemy import select

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Extended degraded replay: Research V2 baseline + TV shadow stratification.
 
 Consumes the latest ``backfill_extended_history_v1.py`` cache summary. Because

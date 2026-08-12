@@ -18,7 +18,6 @@ from typing import Any, Dict, List, Optional, Sequence
 from uuid import UUID
 
 from tradingview_mcp.core.config.trading_settings import get_trading_settings
-from tradingview_mcp.core.database.models.signals import SignalStatus
 from tradingview_mcp.core.database.repositories import query_repository as q
 from tradingview_mcp.core.database.repositories.signal_components_repository import get_components_for_signal
 from tradingview_mcp.core.database.session import session_scope
@@ -58,7 +57,6 @@ async def bybit_market_state(symbol: str) -> Dict[str, Any]:
 
     max_ob_age = settings.max_data_age_orderbook_seconds if settings else 5
     max_oi_age = settings.max_data_age_oi_seconds if settings else 600
-    max_trade_age = settings.max_data_age_trades_seconds if settings else 10
 
     cvd = sum((Decimal(t.delta) for t in trades_1m), Decimal("0")) if trades_1m else None
     delta_last = Decimal(trades_1m[-1].delta) if trades_1m else None

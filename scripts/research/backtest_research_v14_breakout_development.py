@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Development-only replay for the V14 breakout hypothesis.
 
 The runner refuses the reserved 120-day holdout cache by path.  It is intended
@@ -35,7 +34,7 @@ MIN_FUTURE_EXECUTION = dt.timedelta(hours=12)
 SCHEDULES = {
     "CURRENT_DAYTIME_2H_07_21": tuple(DEFAULT_SCAN_HOURS),
     "FULL_24H_2H": tuple(range(0, 24, 2)),
-    "FULL_24H_1H": tuple(range(0, 24)),
+    "FULL_24H_1H": tuple(range(24)),
 }
 SYMBOL_ORDER = {symbol: index for index, symbol in enumerate(REQUIRED_SYMBOLS)}
 DEFAULT_OUTPUT_NAME = "research_v14_breakout_development.json"

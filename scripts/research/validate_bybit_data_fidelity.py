@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Fail-closed audit of cached BACKTEST_COMPARISON_V1 Bybit source data.
 
 This validator is deliberately independent from strategy logic. It verifies:

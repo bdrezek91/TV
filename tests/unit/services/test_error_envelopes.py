@@ -8,7 +8,6 @@ Asserts the structured-error rules the MCP guidance calls for:
 - Message prefixes stay backward-compatible ("No data found for",
   "Analysis failed:") for anyone substring-matching the old strings.
 """
-import pytest
 
 import tradingview_mcp.core.services.scanner_service as scanner_service
 import tradingview_mcp.core.services.screener_service as screener_service

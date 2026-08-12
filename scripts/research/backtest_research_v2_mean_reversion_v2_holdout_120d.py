@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Frozen 120-day untouched historical OOS validation for Mean Reversion V2.
 
 This runner must only be used with the dedicated pre-registered cache:
@@ -57,7 +56,7 @@ from tradingview_mcp.core.backtest.extended_history_v1 import write_json_cache
 SCHEDULES = {
     "CURRENT_DAYTIME_2H_07_21": tuple(DEFAULT_SCAN_HOURS),
     "FULL_24H_2H": tuple(range(0, 24, 2)),
-    "FULL_24H_1H": tuple(range(0, 24)),
+    "FULL_24H_1H": tuple(range(24)),
 }
 SYMBOL_ORDER = {symbol: index for index, symbol in enumerate(REQUIRED_SYMBOLS)}
 

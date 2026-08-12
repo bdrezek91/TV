@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Render BACKTEST_COMPARISON_V1 JSON outputs into one Polish Markdown report."""
 from __future__ import annotations
 

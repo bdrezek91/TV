@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import datetime as dt
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from decimal import Decimal
-from typing import Deque, Dict, List, Optional
+from typing import Dict, List
 
 from tradingview_mcp.core.market_data.bybit.schemas import Liquidation, Trade
 

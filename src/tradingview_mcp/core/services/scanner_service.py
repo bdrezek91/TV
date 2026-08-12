@@ -23,7 +23,6 @@ from tradingview_mcp.core.services.screener_service import (
     pick_fallback_exchange,
     symbol_not_found_error,
 )
-from tradingview_mcp.core.services.indicators import compute_metrics
 from tradingview_mcp.core.utils.validators import (
     EXCHANGE_SCREENER,
     normalize_tradingview_symbol,

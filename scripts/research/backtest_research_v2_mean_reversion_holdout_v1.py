@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Frozen 90-day non-overlapping holdout for Mean Reversion.
 
 This runner is intentionally narrow:
@@ -45,7 +44,7 @@ from tradingview_mcp.core.backtest.comparison_holdout_v1 import (
     validate_holdout_backfill,
 )
 from tradingview_mcp.core.backtest.comparison_lifecycle_v1 import SingleSymbolLifecycleGate
-from tradingview_mcp.core.backtest.comparison_v1 import DEFAULT_SCAN_HOURS, TradeObservation, decision_times, summarize_observations
+from tradingview_mcp.core.backtest.comparison_v1 import DEFAULT_SCAN_HOURS, decision_times, summarize_observations
 from tradingview_mcp.core.backtest.extended_history_loader_v1 import load_extended_bundle
 from tradingview_mcp.core.backtest.extended_history_v1 import write_json_cache
 
@@ -53,7 +52,7 @@ UTC = dt.timezone.utc
 SCHEDULES = {
     "CURRENT_DAYTIME_2H_07_21": tuple(DEFAULT_SCAN_HOURS),
     "FULL_24H_2H": tuple(range(0, 24, 2)),
-    "FULL_24H_1H": tuple(range(0, 24)),
+    "FULL_24H_1H": tuple(range(24)),
 }
 DEFAULT_HOLDOUT_CACHE_ROOT = Path("/app/artifacts/research/backtest_comparison/holdout_90d/cache")
 DEFAULT_OUTPUT = Path("/app/artifacts/research/backtest_comparison/holdout_90d/research_v2_mean_reversion_holdout_v1.json")

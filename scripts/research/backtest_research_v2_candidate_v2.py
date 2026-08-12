@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Lifecycle-aware Research V2 candidate matrix over existing cache.
 
 Research only. No network, DB, paper-state or exchange writes.
@@ -44,7 +43,7 @@ MIN_FUTURE_EXECUTION = dt.timedelta(hours=12)
 SCHEDULES = {
     "CURRENT_DAYTIME_2H_07_21": tuple(DEFAULT_SCAN_HOURS),
     "FULL_24H_2H": tuple(range(0, 24, 2)),
-    "FULL_24H_1H": tuple(range(0, 24)),
+    "FULL_24H_1H": tuple(range(24)),
 }
 CANDIDATES: dict[str, Callable] = {
     "ALIGNED_TARGETS": build_research_v2_candidate_chain_indexed,

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """BACKTEST_COMPARISON_V1 research CLI.
 
 Read-only tooling for comparing legacy TradingView+Bybit with Research V2.

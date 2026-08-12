@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Research V2 Candidate V3: isolate setup contribution under identical inputs.
 
 Research-only, read-only benchmark.  It keeps the ALIGNED_TARGETS decision chain,
@@ -40,7 +39,7 @@ MIN_FUTURE_EXECUTION = dt.timedelta(hours=12)
 SCHEDULES = {
     "CURRENT_DAYTIME_2H_07_21": tuple(DEFAULT_SCAN_HOURS),
     "FULL_24H_2H": tuple(range(0, 24, 2)),
-    "FULL_24H_1H": tuple(range(0, 24)),
+    "FULL_24H_1H": tuple(range(24)),
 }
 SETUP_VARIANTS = {
     "ALL_SETUPS": frozenset({"breakout", "mean_reversion", "trend_pullback"}),

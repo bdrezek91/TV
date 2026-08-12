@@ -7,10 +7,9 @@ from decimal import Decimal
 
 import pytest
 
-from tradingview_mcp.core.database.models.paper_trading import PaperEquitySnapshot, PaperPosition
+from tradingview_mcp.core.database.models.paper_trading import PaperPosition
 from tradingview_mcp.core.database.models.signals import SignalStatus
 from tradingview_mcp.core.database.repositories.signals_repository import save_signal
-from tradingview_mcp.core.database.session import get_sessionmaker
 from tradingview_mcp.core.services import trading_query_service as svc
 
 

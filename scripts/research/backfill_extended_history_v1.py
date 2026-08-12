@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Download/cache official Bybit history for BACKTEST_COMPARISON_V1.
 
 READ-ONLY relative to production. All files go under the research cache root;

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Candidate V8: rolling VWAP deviation reversion comparison."""
 from __future__ import annotations
 
@@ -26,7 +25,7 @@ MIN_FUTURE_EXECUTION = dt.timedelta(hours=12)
 SCHEDULES = {
     "CURRENT_DAYTIME_2H_07_21": tuple(DEFAULT_SCAN_HOURS),
     "FULL_24H_2H": tuple(range(0, 24, 2)),
-    "FULL_24H_1H": tuple(range(0, 24)),
+    "FULL_24H_1H": tuple(range(24)),
 }
 VARIANTS = {
     "MEAN_REVERSION_ONLY": {"mean_reversion"},

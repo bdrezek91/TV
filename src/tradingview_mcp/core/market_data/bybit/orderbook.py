@@ -18,7 +18,7 @@ from __future__ import annotations
 import datetime as dt
 from decimal import Decimal
 from sortedcontainers import SortedDict
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 from tradingview_mcp.core.market_data.bybit.schemas import OrderbookDelta
 
