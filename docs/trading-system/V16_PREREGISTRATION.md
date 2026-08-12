@@ -1,6 +1,6 @@
 # V16 — prerejestracja strategii order-flow-triggered regime-gated (single-instrument)
 
-> Status: ZAMROŻONA. Zamrożona w commicie `TODO_COMMIT_SHA`. Development
+> Status: ZAMROŻONA. Zamrożona w commicie `45b5d57`. Development
 > jeszcze nie uruchomiony.
 
 ## Hipoteza
