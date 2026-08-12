@@ -16,11 +16,10 @@ import signal
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Optional
 
 from prometheus_client import exposition
 
-from tradingview_mcp.core.config.trading_settings import TradingSettingsError, get_trading_settings
+from tradingview_mcp.core.config.trading_settings import get_trading_settings
 from tradingview_mcp.core.database.session import dispose_engine, session_scope
 from tradingview_mcp.core.database.repositories.market_data_repository import (
     insert_liquidation_aggregate,

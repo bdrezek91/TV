@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Validate extended research cache safety invariants.
 
 Research-only safety check. Reads the existing extended cache and verifies that

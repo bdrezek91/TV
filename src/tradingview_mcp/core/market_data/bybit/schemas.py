@@ -33,7 +33,7 @@ Reference shapes (Bybit v5 public WS, linear category):
 from __future__ import annotations
 
 import datetime as dt
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from decimal import Decimal
 from typing import List, Literal, Optional
 

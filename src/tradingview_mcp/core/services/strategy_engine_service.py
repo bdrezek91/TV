@@ -20,7 +20,7 @@ from __future__ import annotations
 import datetime as dt
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Callable, Dict, List, Optional
+from typing import Callable, List, Optional
 
 from tradingview_mcp.core.analysis import hard_gates as gates
 from tradingview_mcp.core.analysis import regime_classifier

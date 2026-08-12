@@ -690,11 +690,9 @@ def analyze_timeframe_context(indicators: Dict, timeframe: str) -> Dict:
     rsi = indicators.get("RSI")
     ema20 = indicators.get("EMA20")
     ema50 = indicators.get("EMA50")
-    ema100 = indicators.get("EMA100")
     ema200 = indicators.get("EMA200")
     macd_line = indicators.get("MACD.macd")
     macd_signal = indicators.get("MACD.signal")
-    adx = indicators.get("ADX")
     volume = indicators.get("volume")
     volume_sma20 = indicators.get("volume.SMA20")
     vwap = indicators.get("VWAP")
@@ -1214,8 +1212,6 @@ def compute_trade_setup(indicators: Dict) -> Optional[Dict]:
     Only call this for stocks that pass the stock score threshold (>=70).
     """
     close = indicators.get("close")
-    high = indicators.get("high")
-    low = indicators.get("low")
     atr = indicators.get("ATR")
     ema20 = indicators.get("EMA20")
     ema50 = indicators.get("EMA50")

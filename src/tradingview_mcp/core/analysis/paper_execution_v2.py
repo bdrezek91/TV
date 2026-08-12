@@ -39,7 +39,7 @@ from __future__ import annotations
 
 import datetime as dt
 from decimal import Decimal
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 ORDER_STATES = (
     "SIGNAL_CREATED", "PENDING_ENTRY", "PARTIALLY_FILLED", "OPEN",

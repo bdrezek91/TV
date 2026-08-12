@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Development replay for the single post-holdout Mean Reversion V2 hypothesis.
 
 This is NOT a holdout. MR V2 was derived after observing the MR V1 90-day
@@ -53,7 +52,7 @@ MIN_FUTURE_EXECUTION = dt.timedelta(hours=12)
 SCHEDULES = {
     "CURRENT_DAYTIME_2H_07_21": tuple(DEFAULT_SCAN_HOURS),
     "FULL_24H_2H": tuple(range(0, 24, 2)),
-    "FULL_24H_1H": tuple(range(0, 24)),
+    "FULL_24H_1H": tuple(range(24)),
 }
 SYMBOL_ORDER = {symbol: index for index, symbol in enumerate(REQUIRED_SYMBOLS)}
 DEFAULT_OUTPUT_NAME = "research_v2_mean_reversion_v2_development.json"

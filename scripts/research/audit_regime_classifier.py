@@ -43,7 +43,6 @@ report: dict = {
 # ── Import check (fatal if this fails -- that IS the point) ────────────────
 from tradingview_mcp.core.analysis import regime_classifier_v2 as rc  # noqa: E402
 from tradingview_mcp.core.services import regime_service_v2 as rs  # noqa: E402
-from tradingview_mcp.core.analysis import feature_engine as fe  # noqa: E402
 from tradingview_mcp.core.config.trading_settings import get_trading_settings  # noqa: E402
 from tradingview_mcp.core.database.session import session_scope  # noqa: E402
 from tradingview_mcp.core.database.repositories import query_repository as qr  # noqa: E402

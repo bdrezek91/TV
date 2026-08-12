@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Research V2 Candidate V4: forensic breakdown of mean-reversion lifecycle trades.
 
 Read-only research diagnostic built on the same ALIGNED_TARGETS candidate chain,
@@ -47,7 +46,7 @@ MIN_FUTURE_EXECUTION = dt.timedelta(hours=12)
 SCHEDULES = {
     "CURRENT_DAYTIME_2H_07_21": tuple(DEFAULT_SCAN_HOURS),
     "FULL_24H_2H": tuple(range(0, 24, 2)),
-    "FULL_24H_1H": tuple(range(0, 24)),
+    "FULL_24H_1H": tuple(range(24)),
 }
 WEEKDAY_NAMES = ("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")
 

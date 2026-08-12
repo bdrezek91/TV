@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Adjudicate public-trade vs kline-volume mismatches against raw Bybit archives.
 
 This read-only research tool is intentionally separate from the strict data-fidelity

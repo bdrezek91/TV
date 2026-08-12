@@ -1,24 +1,25 @@
-#!/usr/bin/env python3
 """Candidate V9: volatility expansion / squeeze breakout comparison."""
 from __future__ import annotations
 
-import argparse,bisect,datetime as dt,json
+import argparse
+import bisect
+import datetime as dt
+import json
 from collections import Counter,defaultdict
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
 
 from tradingview_mcp.core.backtest.comparison_candidate_v1 import build_research_v2_candidate_chain_indexed
 from tradingview_mcp.core.backtest.comparison_execution_v1 import simulate_neutral_signal
 from tradingview_mcp.core.backtest.comparison_history_index_v1 import HistoricalWindowIndex
 from tradingview_mcp.core.backtest.comparison_history_v1 import neutral_signals_from_research
 from tradingview_mcp.core.backtest.comparison_lifecycle_v1 import SingleSymbolLifecycleGate
-from tradingview_mcp.core.backtest.comparison_v1 import DEFAULT_SCAN_HOURS,TradeObservation,decision_times,summarize_observations
+from tradingview_mcp.core.backtest.comparison_v1 import DEFAULT_SCAN_HOURS,decision_times,summarize_observations
 from tradingview_mcp.core.backtest.comparison_volatility_expansion_v1 import evaluate_volatility_expansion
 from tradingview_mcp.core.backtest.extended_history_loader_v1 import load_extended_bundle
 from tradingview_mcp.core.backtest.extended_history_v1 import DEFAULT_CACHE_ROOT,write_json_cache
 UTC=dt.timezone.utc; MIN_FUTURE_EXECUTION=dt.timedelta(hours=12)
-SCHEDULES={"CURRENT_DAYTIME_2H_07_21":tuple(DEFAULT_SCAN_HOURS),"FULL_24H_2H":tuple(range(0,24,2)),"FULL_24H_1H":tuple(range(0,24))}
+SCHEDULES={"CURRENT_DAYTIME_2H_07_21":tuple(DEFAULT_SCAN_HOURS),"FULL_24H_2H":tuple(range(0,24,2)),"FULL_24H_1H":tuple(range(24))}
 VARIANTS={"MEAN_REVERSION_ONLY":{"mean_reversion"},"VOLATILITY_EXPANSION_ONLY":{"volatility_expansion"},"MEAN_REVERSION_PLUS_VOLATILITY_EXPANSION":{"mean_reversion","volatility_expansion"}}
 
 def _dt(v):

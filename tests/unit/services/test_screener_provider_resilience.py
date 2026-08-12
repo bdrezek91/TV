@@ -8,8 +8,6 @@ Locks in 2026-05-20 hardening:
 from __future__ import annotations
 
 import json
-import os
-import time
 from unittest import mock
 
 import pytest

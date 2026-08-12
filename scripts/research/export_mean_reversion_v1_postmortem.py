@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Export event-level diagnostics from the already-observed MR V1 holdout.
 
 IMPORTANT: this is post-holdout research.  The 2026-04-12..2026-07-10 period
@@ -48,7 +47,7 @@ from tradingview_mcp.core.backtest.extended_history_loader_v1 import load_extend
 SCHEDULES = {
     "CURRENT_DAYTIME_2H_07_21": tuple(DEFAULT_SCAN_HOURS),
     "FULL_24H_2H": tuple(range(0, 24, 2)),
-    "FULL_24H_1H": tuple(range(0, 24)),
+    "FULL_24H_1H": tuple(range(24)),
 }
 SYMBOL_ORDER = {symbol: index for index, symbol in enumerate(REQUIRED_SYMBOLS)}
 DEFAULT_ROOT = Path("/app/artifacts/research/backtest_comparison/holdout_90d")

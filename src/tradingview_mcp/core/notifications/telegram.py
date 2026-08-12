@@ -21,7 +21,7 @@ from __future__ import annotations
 import datetime as dt
 import enum
 from dataclasses import dataclass, field
-from typing import Callable, Dict, Optional, Protocol
+from typing import Dict, Optional, Protocol
 
 
 class AlertType(str, enum.Enum):

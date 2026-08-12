@@ -62,7 +62,6 @@ def evaluate(features: dict, tv: TradingViewContext, regime: str) -> Optional[St
         return None
 
     delta = volume.get("delta")
-    cvd_slope = volume.get("cvd_slope_5m")
     flow_confirms = True
     if delta is not None:
         delta_dec = Decimal(str(delta))

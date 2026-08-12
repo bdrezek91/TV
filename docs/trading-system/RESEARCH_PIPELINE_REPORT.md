@@ -1,9 +1,11 @@
 # Warstwa 1-5 (Research Pipeline) — Raport stanu i weryfikacji
 
-Data: 2026-08-10
-Branch: `trading-system-blocks-1-3` (repo: `bdrezek91/TV`)
+> **UWAGA: V14 jest w fazie POST_HOLDOUT_DEVELOPMENT_NOT_VALIDATION – badania nad nowymi strategiami. Nie jest przeznaczony do walidacji produkcyjnej.**
+
+Data ostatniej aktualizacji: 2026-08-12
+Branch: `main` (repo: `bdrezek91/TV`)
 VPS: `~/tradingview-mcp` na `server750497`
-Ostatnie commity: `e865867` (Warstwa 5), `b028828` (3 bugfixy), `9dccdbb` (trwały wolumen)
+Historyczne commity opisywanego etapu: `e865867` (Warstwa 5), `b028828` (3 bugfixy), `9dccdbb` (trwały wolumen)
 
 ---
 
@@ -264,7 +266,7 @@ nie tylko poprawnie działającego promptu).
 ```bash
 cd ~/tradingview-mcp
 git fetch mywork
-git reset --hard mywork/trading-system-blocks-1-3   # albo git pull --no-rebase, jeśli VPS ma lokalne commity
+git reset --hard mywork/main   # albo git pull mywork main --no-rebase, jeśli VPS ma lokalne commity
 docker compose build --no-cache tradingview-mcp
 docker compose up -d --force-recreate tradingview-mcp
 ```

@@ -15,7 +15,6 @@ import asyncio
 import datetime as dt
 import logging
 from dataclasses import dataclass, field
-from decimal import Decimal
 from typing import Awaitable, Callable, Dict, Optional
 
 from tradingview_mcp.core.market_data.bybit.aggregation import (

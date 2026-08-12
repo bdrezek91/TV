@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Strict local A/B/C + TV-shadow runner for BACKTEST_COMPARISON_V1.
 
 Fails closed unless every selected symbol has a common point-in-time window

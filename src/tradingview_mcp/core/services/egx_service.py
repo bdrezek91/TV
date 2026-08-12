@@ -22,7 +22,7 @@ from tradingview_mcp.core.services.indicators import (
     analyze_fibonacci_position,
     detect_trend_for_fibonacci,
 )
-from tradingview_mcp.core.utils.validators import EXCHANGE_SCREENER, sanitize_timeframe
+from tradingview_mcp.core.utils.validators import EXCHANGE_SCREENER
 
 # Resilience layer (no tradingview_ta dependency; safe to import unconditionally).
 from tradingview_mcp.core.services.screener_provider import _scan_with_retry
@@ -283,7 +283,6 @@ def run_egx_sector_scanner(
         EGX_SECTORS,
         EGX_SECTOR_META,
         SECTOR_DISPLAY_NAMES,
-        get_sector,
         get_currency,
     )
 
@@ -1009,7 +1008,7 @@ def analyze_egx_fibonacci(
     Returns:
         Fibonacci retracement & extension levels, price position, and context.
     """
-    from tradingview_mcp.core.data.egx_sectors import get_sector, get_currency
+    from tradingview_mcp.core.data.egx_sectors import get_sector
 
     if not _TA_AVAILABLE:
         return {"error": "tradingview_ta is missing; run `uv sync`."}

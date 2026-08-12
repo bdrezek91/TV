@@ -49,13 +49,11 @@ from tradingview_mcp.core.services.marketaux_service import (
     fetch_news_summary,
 )
 from tradingview_mcp.core.services.yahoo_finance_service import (
-    get_price,
     get_price_async,
     get_market_snapshot,
 )
 from tradingview_mcp.core.services.bitcoin_market_service import get_bitcoin_market_pulse
 from tradingview_mcp.core.services.extended_hours_service import (
-    get_extended_hours_price,
     get_extended_hours_price_async,
 )
 from tradingview_mcp.core.services.options_service import (

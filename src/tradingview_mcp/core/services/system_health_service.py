@@ -10,7 +10,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import Any, Optional
 
-from tradingview_mcp.core.config.trading_settings import TradingSettingsError, get_trading_settings
+from tradingview_mcp.core.config.trading_settings import get_trading_settings
 from tradingview_mcp.core.database.session import check_database_connection
 
 

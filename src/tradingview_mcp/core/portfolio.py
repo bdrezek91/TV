@@ -1,7 +1,6 @@
 import sqlite3
 import os
-from typing import Dict, List, Optional, Any
-from datetime import datetime
+from typing import Dict, Any
 
 # Store the DB in the user's home directory or current directory
 DB_DIR = os.path.expanduser("~/.tradingview_mcp_data")

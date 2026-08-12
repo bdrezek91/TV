@@ -13,9 +13,8 @@ import json
 import urllib.request
 import urllib.parse
 from datetime import datetime, timezone
-from typing import Optional
 
-from tradingview_mcp.core.services.proxy_manager import build_opener_with_proxy, is_proxy_configured
+from tradingview_mcp.core.services.proxy_manager import build_opener_with_proxy
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Any, Mapping, Optional
+from typing import Any, Mapping
 
 from tradingview_mcp.core.backtest.comparison_history_v1 import PointInTimeWindows, reconstruct_tv_context
 from tradingview_mcp.core.backtest.comparison_v1 import NeutralSignal

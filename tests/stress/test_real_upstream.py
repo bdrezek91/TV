@@ -22,12 +22,10 @@ counts as "did not hang".
 from __future__ import annotations
 
 import asyncio
-import os
 import time
 
 import pytest
 
-from tradingview_mcp.core.errors import BatchExecutionError, is_error
 
 
 # Apply the stress marker to every test in this module. Run with

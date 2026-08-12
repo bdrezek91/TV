@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 CLI wrapper for tradingview-mcp — called by OpenClaw agent via bash.
 
