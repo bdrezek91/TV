@@ -149,4 +149,3 @@ def evaluate_breakout_v13(chain: Mapping[str, Any], *, btc_regime: str | None = 
         "gates": gates,
         "signal": signal,
     }
-

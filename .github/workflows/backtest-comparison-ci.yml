@@ -2,7 +2,7 @@ name: Backtest Comparison CI
 
 on:
   pull_request:
-    branches: [trading-system-blocks-1-3, agent/backtest-comparison-v1]
+    branches: [claude/tradingview-mcp-copy-xhu9s7, trading-system-blocks-1-3, agent/backtest-comparison-v1]
     paths:
       - 'src/tradingview_mcp/core/backtest/**'
       - 'src/tradingview_mcp/core/database/orderbook_retention.py'

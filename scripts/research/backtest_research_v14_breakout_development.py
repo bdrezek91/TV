@@ -243,4 +243,3 @@ def parse_args() -> argparse.Namespace:
 
 if __name__ == "__main__":
     print(json.dumps(_jsonable(main(parse_args())), indent=2))
-

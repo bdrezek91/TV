@@ -12,6 +12,9 @@ from tradingview_mcp import server
 from tradingview_mcp.server import mcp
 
 
+STATE_MUTATING_TOOLS = {"research_advance_paper_trading"}
+
+
 def _tools():
     return mcp._tool_manager.list_tools()
 
@@ -36,5 +39,6 @@ def test_wrapped_tool_still_returns_the_original_result(monkeypatch):
 def test_offload_preserves_annotations_and_metadata():
     for t in _tools():
         assert t.annotations is not None and t.annotations.title
-        assert t.annotations.readOnlyHint is True
+        expected_read_only = t.name not in STATE_MUTATING_TOOLS
+        assert t.annotations.readOnlyHint is expected_read_only
         assert t.fn_metadata is not None  # validation schema still from the original signature

@@ -16,4 +16,3 @@ def test_development_runner_rejects_reserved_holdout_path(tmp_path: Path) -> Non
 def test_development_runner_accepts_normal_development_path(tmp_path: Path) -> None:
     development = tmp_path / "development" / "cache"
     assert validate_v13_development_cache_root(development) == development.resolve()
-

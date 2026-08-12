@@ -77,4 +77,3 @@ def test_missing_derivatives_fails_closed() -> None:
     result = evaluate_v13_gates(chain, "LONG")
     assert result["eligible"] is False
     assert "derivatives features unavailable" in result["rejection_reasons"]
-
