@@ -1,7 +1,9 @@
 # Bybit Trading System — Podsumowanie projektu
 
-Data ostatniej aktualizacji: 2026-08-08
-Branch: `trading-system-blocks-1-3` (repo: `bdrezek91/TV`)
+> **UWAGA: V14 jest w fazie POST_HOLDOUT_DEVELOPMENT_NOT_VALIDATION – badania nad nowymi strategiami. Nie jest przeznaczony do walidacji produkcyjnej.**
+
+Data ostatniej aktualizacji: 2026-08-12
+Branch: `main` (repo: `bdrezek91/TV`)
 VPS: `~/tradingview-mcp` na `server750497`
 
 ## 1. Cel
@@ -96,9 +98,9 @@ automatycznie kontenera tylko dlatego, że zmienił się `.env`.
 
 ## 5. Historia bugów znalezionych i naprawionych (na żywych danych VPS)
 
-System był budowany i testowany w sandboxie (417+ testów), ale kilka błędów
+System jest objęty zestawem 533 przechodzących testów hermetycznych, ale kilka błędów
 ujawniło się dopiero po realnym wdrożeniu — normalne dla tego typu integracji.
-Wszystkie naprawione, przetestowane, wypchnięte na branch:
+Wszystkie naprawione, przetestowane i włączone do `main`:
 
 1. **`KeyError: source_timestamp`** — świece z WebSocketu nie miały tego pola,
    wymaganego przez regułę "nie nadpisuj nowszych danych starszymi"
@@ -174,7 +176,7 @@ który wskazuje na oryginalne, upstream repo `atilaahmettaner/tradingview-mcp`).
 
 ```bash
 cd ~/tradingview-mcp
-git pull mywork trading-system-blocks-1-3 --no-rebase   # merge, nie rebase — VPS ma własne lokalne commity (docker-compose.yml)
+git pull mywork main --no-rebase                        # merge, nie rebase — VPS ma własne lokalne commity (docker-compose.yml)
 docker compose build <serwis>                              # tylko zmienione serwisy
 docker compose up -d --force-recreate <serwis>              # wymusza realny restart
 ```
