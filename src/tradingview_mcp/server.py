@@ -17,6 +17,8 @@ from typing import Optional
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 # ── Service imports ────────────────────────────────────────────────────────────
 from tradingview_mcp.core.services.coinlist import load_symbols
@@ -127,6 +129,12 @@ mcp = FastMCP(
         "futures_category_snapshot, futures_watchlist, egx_market_overview, and more."
     ),
 )
+
+
+@mcp.custom_route("/health", methods=["GET"], include_in_schema=False)
+async def health_check(_request: Request) -> JSONResponse:
+    """Container liveness endpoint, independent of the MCP session protocol."""
+    return JSONResponse({"status": "ok"})
 
 
 # ── Screener tools ─────────────────────────────────────────────────────────────
