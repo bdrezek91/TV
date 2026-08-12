@@ -17,15 +17,16 @@ from tradingview_mcp.core.backtest.comparison_breakout_v14 import (
 
 
 def _chain(*, regime: str = "TREND_UP", trigger_close: str = "105") -> dict:
+    trigger_close_value = Decimal(trigger_close)
     history = [
         {"open": Decimal("100"), "high": Decimal("101"), "low": Decimal("99"), "close": Decimal("100")}
         for _ in range(16)
     ]
     trigger = {
         "open": Decimal("100"),
-        "high": Decimal(trigger_close),
-        "low": Decimal("99.5"),
-        "close": Decimal(trigger_close),
+        "high": max(Decimal("100"), trigger_close_value),
+        "low": min(Decimal("99.5"), trigger_close_value),
+        "close": trigger_close_value,
     }
     return {
         "regime": {"primary_regime": regime},
@@ -52,7 +53,12 @@ def test_rejects_non_directional_regime() -> None:
 
 
 def test_detects_short_breakout_and_builds_ordered_risk_geometry() -> None:
-    setup = detect_v14_setup(_chain(regime="TREND_DOWN", trigger_close="95"))
+    chain = _chain(regime="TREND_DOWN", trigger_close="95")
+    trigger = chain["_windows"].candles_15m[-1]
+    assert trigger["high"] >= max(trigger["open"], trigger["close"])
+    assert trigger["low"] <= min(trigger["open"], trigger["close"])
+
+    setup = detect_v14_setup(chain)
     assert setup["direction"] == "SHORT"
     assert setup["entry_zone"]["low"] < setup["entry_zone"]["high"]
     assert setup["stop_loss"] > setup["entry_zone"]["high"]
