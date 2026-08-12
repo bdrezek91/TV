@@ -1,6 +1,9 @@
 # Warstwa 1-5 (Research Pipeline) — Raport stanu i weryfikacji
 
-> **UWAGA: V14 jest w fazie POST_HOLDOUT_DEVELOPMENT_NOT_VALIDATION – badania nad nowymi strategiami. Nie jest przeznaczony do walidacji produkcyjnej.**
+> **UWAGA: V3–V14 zostały zamknięte bez promocji. V15 jest w fazie
+> POST_HOLDOUT_DEVELOPMENT_NOT_VALIDATION i nie jest przeznaczone do walidacji
+> produkcyjnej ani handlu live. Zobacz `V3_V14_POSTMORTEM.md` i
+> `V15_PREREGISTRATION.md`.**
 
 Data ostatniej aktualizacji: 2026-08-12
 Branch: `main` (repo: `bdrezek91/TV`)
