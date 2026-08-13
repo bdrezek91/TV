@@ -1,8 +1,7 @@
 # V17 — prerejestracja strategii order-flow-triggered regime-gated, szerszy stop
 
-> Status: PROJEKT — niezamrożony. Zamrożenie następuje dopiero po jawnej
-> zgodzie użytkownika; od tego momentu żaden próg w tym pliku nie może się
-> zmienić na podstawie wyniku development.
+> Status: ZAMROŻONA. Zamrożona w commicie `TODO_COMMIT_SHA`. Development
+> jeszcze nie uruchomiony.
 
 ## Hipoteza
 
