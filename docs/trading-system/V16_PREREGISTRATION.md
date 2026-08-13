@@ -1,7 +1,14 @@
 # V16 — prerejestracja strategii order-flow-triggered regime-gated (single-instrument)
 
-> Status: ZAMROŻONA. Zamrożona w commicie `45b5d57`. Development
-> jeszcze nie uruchomiony.
+> Status końcowy: `DEVELOPMENT_FAIL`. V16 została zamknięta bez promocji,
+> bez holdoutu i bez prawa do handlu live. Historyczny kontrakt pozostaje
+> niezmieniony dla odtwarzalności. Zobacz `V16_DEVELOPMENT_POSTMORTEM.md`.
+
+Badanie development wykonane na commicie `0f14f23` nie przeszło zamrożonej
+bramki: wszystkie trzy harmonogramy miały ujemne expectancy, PF poniżej
+0,68 i żaden symbol nie zakończył okresu z dodatnim PnL netto. Poniższa
+specyfikacja jest zapisem historycznym i nie może być już dostrajana na
+tym okresie.
 
 ## Hipoteza
 

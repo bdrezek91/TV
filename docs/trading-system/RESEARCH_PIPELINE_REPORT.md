@@ -1,12 +1,13 @@
 # Warstwa 1-5 (Research Pipeline) — Raport stanu i weryfikacji
 
-> **UWAGA: V3–V14 zostały zamknięte bez promocji. V15 zakończyła development
-> wynikiem `DEVELOPMENT_FAIL` i została zamknięta bez holdoutu. Nie jest
-> przeznaczona do walidacji produkcyjnej ani handlu live. Zobacz
-> `V3_V14_POSTMORTEM.md`, `V15_PREREGISTRATION.md` oraz
-> `V15_DEVELOPMENT_POSTMORTEM.md`.**
+> **UWAGA: V3–V14 zostały zamknięte bez promocji. V15 i V16 zakończyły
+> development wynikiem `DEVELOPMENT_FAIL` i zostały zamknięte bez holdoutu.
+> Żadna z nich nie jest przeznaczona do walidacji produkcyjnej ani handlu
+> live. Zobacz `V3_V14_POSTMORTEM.md`, `V15_PREREGISTRATION.md`,
+> `V15_DEVELOPMENT_POSTMORTEM.md`, `V16_PREREGISTRATION.md` oraz
+> `V16_DEVELOPMENT_POSTMORTEM.md`.**
 
-Data ostatniej aktualizacji: 2026-08-12
+Data ostatniej aktualizacji: 2026-08-13
 Branch: `main` (repo: `bdrezek91/TV`)
 VPS: `~/tradingview-mcp` na `server750497`
 Historyczne commity opisywanego etapu: `e865867` (Warstwa 5), `b028828` (3 bugfixy), `9dccdbb` (trwały wolumen)
@@ -30,6 +31,29 @@ wejść przy `|z| >= 2,0` bez górnej granicy, mimo że `|z| >= 3,5` było
 warunkiem stop. To wada hipotezy ujawniona przez wynik, dlatego V15 nie będzie
 retuszowana. Szczegóły i pełna decyzja znajdują się w
 `V15_DEVELOPMENT_POSTMORTEM.md`.
+
+## Wynik najnowszego eksperymentu V16
+
+V16 była kolejną, osobną od V3–V15 hipotezą: jednonożny, regime-gated
+trigger oparty bezpośrednio na zagregowanym order-flow (`confirm_setup` z
+`orderflow_confirmation_v2`), ze stopem ATR liczonym niezależnie od
+order-flow (naprawiona lekcja z V15). Implementacja, runner i testy
+zostały scalone do `main` w commicie `0f14f23`. Badanie development na
+VPS zakończyło się `DEVELOPMENT_FAIL`:
+
+- 0/3 harmonogramów z dodatnim expectancy;
+- PF 0,5150–0,6783;
+- expectancy -0,0884 R do -0,1493 R;
+- żaden z pięciu symboli nie zakończył okresu z dodatnim PnL netto;
+- 95% CI poniżej zera we wszystkich harmonogramach;
+- cadence bez rozbieżności wyników (`common_r_mismatches = 0`);
+- `holdout_mrv2_120d` pozostał niewykorzystany.
+
+Audyt wykazał, że rdzeń hipotezy (wyjście przez odwrócenie order-flow, 91%
+transakcji) miał expectancy statystycznie nieodróżnialne od zera, ale
+rzadkie trafienia w ATR-stop (8,8% transakcji, expectancy -1,13 R każde)
+przeważyły wynik na minus. Szczegóły i pełna decyzja znajdują się w
+`V16_DEVELOPMENT_POSTMORTEM.md`.
 
 ---
 
