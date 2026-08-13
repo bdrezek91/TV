@@ -1,6 +1,6 @@
 # V17 — prerejestracja strategii order-flow-triggered regime-gated, szerszy stop
 
-> Status: ZAMROŻONA. Zamrożona w commicie `TODO_COMMIT_SHA`. Development
+> Status: ZAMROŻONA. Zamrożona w commicie `9c96552`. Development
 > jeszcze nie uruchomiony.
 
 ## Hipoteza
